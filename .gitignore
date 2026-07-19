@@ -1,0 +1,11 @@
+# Secrets + deployment switches (CANVAS_TOKEN, BIND, REQUIRE_AUTH)
+.env
+
+# Runtime state written by the server (current screen, mute, flash)
+state.json
+
+__pycache__/
+*.pyc
+
+# Sprite source pack -- only build_cat.py needs it
+Free pack/
