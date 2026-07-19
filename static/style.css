@@ -46,15 +46,46 @@ html, body {
   margin: 4px 6px 22px;
 }
 .brand-cat { font-size: 18px; }
-.nav { display: flex; flex-direction: column; gap: 4px; }
-.nav-item {
-  display: flex; align-items: center; gap: 10px;
-  padding: 9px 12px; border-radius: 12px;
-  font-size: 12px; font-weight: 600; color: var(--muted);
+#alert-panel {
+  min-height: 0; flex: 1; display: flex; flex-direction: column;
 }
-.nav-item .ic { font-size: 13px; }
-.nav-item.active {
-  color: var(--ink); font-weight: 800;
+.side-title {
+  margin: 0 6px 9px; color: var(--head);
+  font-size: 10px; font-weight: 800; letter-spacing: .3px;
+}
+#history-list {
+  min-height: 0; display: flex; flex-direction: column; gap: 8px;
+  overflow: hidden;
+}
+.hist-item {
+  display: grid; grid-template-columns: 8px 1fr; column-gap: 7px; row-gap: 2px;
+  align-items: start; padding: 7px 6px; border-radius: 10px;
+  background: rgba(255,253,249,.55); border: 1px solid rgba(236,226,207,.72);
+}
+.hist-dot {
+  width: 7px; height: 7px; margin-top: 3px; border-radius: 50%;
+  background: var(--muted);
+}
+.hist-item.claim .hist-dot { background: var(--orange); }
+.hist-item.error .hist-dot { background: var(--red); }
+.hist-item.warn .hist-dot { background: var(--amber); }
+.hist-item.ok .hist-dot { background: var(--green); }
+.hist-item.control .hist-dot { background: var(--blue); }
+.hist-copy { min-width: 0; }
+.hist-copy b {
+  display: block; color: var(--ink); font-size: 10px; font-weight: 800;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.hist-copy span {
+  display: block; color: var(--muted); font-size: 9px; font-weight: 600;
+  line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.hist-item time {
+  grid-column: 2; color: var(--muted); font-size: 8px; font-weight: 700;
+}
+.hist-empty {
+  margin: 8px 6px; color: var(--muted); font-size: 10px; font-weight: 600;
+  line-height: 1.4;
 }
 .side-foot {
   margin-top: auto; display: flex; flex-direction: column; gap: 4px;
@@ -126,17 +157,39 @@ html, body {
 .wx-bar i { display: block; height: 100%; width: 0%; background: var(--blue); border-radius: 6px; }
 .wx-row b#wx-hum { color: var(--ink); font-weight: 700; min-width: 30px; text-align: right; }
 
-/* ---- pet bed (cat naps here; it roams the whole screen) ---- */
-#pet-card { grid-column: 3; grid-row: 1; padding: 0; overflow: hidden; }
-#yard {
-  position: relative; width: 100%; height: 100%; border-radius: var(--radius);
-  background:
-    radial-gradient(58% 42% at 50% 64%, #f0e2c6 0%, #f6efdf 58%, transparent 60%),
-    linear-gradient(180deg, #fdf8ef 0%, #f7f0e2 100%);
+/* ---- canvas assignments (cat still roams over the whole screen) ---- */
+#canvas-card {
+  grid-column: 3; grid-row: 1;
+  display: flex; flex-direction: column; overflow: hidden;
 }
-#bed-label {
-  position: absolute; left: 0; right: 0; bottom: 10px;
-  text-align: center; font-size: 10px; color: var(--muted); font-weight: 600;
+#canvas-card .pulse { font-size: 11px; }
+#cv-list {
+  margin-top: 2px; flex: 1; min-height: 0;
+  display: flex; flex-direction: column; gap: 2px; overflow: hidden;
+}
+.cv-item {
+  display: grid; grid-template-columns: 1fr auto; align-items: baseline;
+  gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line);
+}
+.cv-item:last-child { border-bottom: 0; }
+.cv-main { min-width: 0; }
+.cv-title {
+  font-size: 11px; font-weight: 700; color: var(--ink);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.cv-course {
+  font-size: 9px; color: var(--muted); font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.cv-due {
+  font-size: 10px; font-weight: 800; color: var(--head);
+  text-align: right; white-space: nowrap;
+}
+.cv-item.soon .cv-due { color: var(--orange); }
+.cv-item.overdue .cv-due { color: var(--red); }
+.cv-empty {
+  font-size: 11px; color: var(--muted); font-weight: 600;
+  margin: auto 0; text-align: center; line-height: 1.6;
 }
 
 /* ---- system ---- */
@@ -202,7 +255,7 @@ html, body {
 
 /* ---- roaming cat overlay ---- */
 #petlayer { position: fixed; inset: 0; z-index: 60; pointer-events: none; overflow: hidden; }
-#cat {
+.cat {
   position: absolute; left: 40px; top: 120px;
   width: 96px; height: 96px;               /* 32px sprite * 3 */
   background-image: url("cat.png");
@@ -212,14 +265,14 @@ html, body {
   will-change: left, top, background-position;
   filter: drop-shadow(0 5px 3px rgba(80,60,20,.25));
 }
-#cat-say {
+.cat-say {
   position: absolute; left: 0; top: 0; transform: translateX(-50%);
   white-space: nowrap; font-size: 11px; font-weight: 700; color: var(--ink);
   padding: 4px 9px; background: var(--card);
   border: 1px solid var(--line); border-radius: 12px;
   box-shadow: var(--shadow); opacity: 0; transition: opacity .15s;
 }
-#cat-say.show { opacity: 1; }
+.cat-say.show { opacity: 1; }
 .cat-fx {
   position: absolute; font-size: 14px; pointer-events: none;
   animation: floatUp 1.4s ease-out forwards;
@@ -228,6 +281,23 @@ html, body {
   0%   { opacity: 0; transform: translate(-50%, 0)    scale(.6); }
   20%  { opacity: 1; }
   100% { opacity: 0; transform: translate(-50%, -34px) scale(1.1); }
+}
+
+/* ---- cats screen (ambient) ---- */
+.cats-room {
+  position: fixed; inset: 0;
+  background:
+    radial-gradient(120% 80% at 50% 0%, #fff6e4 0%, var(--bg) 55%, #e6dcc6 100%);
+}
+.cats-rug {
+  position: absolute; left: 50%; bottom: 9%; transform: translateX(-50%);
+  width: 460px; height: 150px; border-radius: 50%;
+  background: #ecdcc0; box-shadow: inset 0 0 0 10px #e3d0ae;
+  opacity: .75;
+}
+.cats-hint {
+  position: absolute; right: 22px; bottom: 16px;
+  font-size: 20px; opacity: .25;
 }
 
 /* ---- alert flash ---- */

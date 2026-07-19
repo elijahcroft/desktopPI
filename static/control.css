@@ -1,0 +1,162 @@
+/* Phone control app. Palette copied from style.css so it reads as the same
+   product as the kiosk — same cream, same radius, same type. */
+:root {
+  --bg:      #f1ebdd;
+  --card:    #fffdf9;
+  --card-alt:#fbf5e9;
+  --ink:     #423b31;
+  --head:    #5a5044;
+  --muted:   #a99f8d;
+  --faint:   #e7ddc9;
+  --line:    #ece2cf;
+  --orange:  #f2a43c;
+  --orange-d:#e08f2a;
+  --green:   #7cae5a;
+  --amber:   #e6b24a;
+  --red:     #e07a6b;
+  --blue:    #7aa9d6;
+  --radius:  18px;
+  --shadow:  0 8px 20px rgba(70,55,25,.07), 0 2px 6px rgba(70,55,25,.05);
+  --font: "Nunito","Quicksand","Segoe UI",system-ui,-apple-system,
+          "Helvetica Neue",Arial,sans-serif;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font);
+  line-height: 1.4;
+  overscroll-behavior-y: contain;   /* pull-to-refresh fights standalone mode */
+  padding: 0 14px calc(24px + env(safe-area-inset-bottom));
+}
+
+main { max-width: 520px; margin: 0 auto; }
+
+button { font: inherit; color: inherit; touch-action: manipulation; }
+
+/* ---- header ---- */
+header { padding: calc(20px + env(safe-area-inset-top)) 4px 14px; }
+.kicker {
+  font-size: 12px; font-weight: 700; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--muted);
+}
+h1 { font-size: 30px; font-weight: 800; color: var(--head); letter-spacing: -.01em; }
+#status { margin-top: 4px; font-size: 13px; color: var(--muted); }
+#status.err { color: var(--red); font-weight: 700; }
+
+/* ---- panels ---- */
+.panel {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 14px;
+  margin-bottom: 14px;
+}
+.panel h2 {
+  font-size: 12px; font-weight: 800; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--muted);
+  margin-bottom: 10px;
+}
+.empty { color: var(--muted); font-size: 14px; padding: 6px 2px; }
+
+/* ---- screen picker ---- */
+#screens { display: grid; gap: 8px; }
+.screen-opt {
+  display: flex; align-items: center; gap: 10px;
+  min-height: 54px; padding: 0 14px;
+  background: var(--bg);
+  border: 2px solid var(--line);
+  border-radius: 14px;
+  font-size: 16px; font-weight: 700;
+  text-align: left; cursor: pointer;
+}
+.screen-opt .tick {
+  width: 18px; height: 18px; border-radius: 50%;
+  border: 2px solid var(--faint); flex: 0 0 auto;
+}
+.screen-opt[aria-checked="true"] {
+  background: var(--card-alt);
+  border-color: var(--orange);
+}
+.screen-opt[aria-checked="true"] .tick {
+  border-color: var(--orange);
+  background: radial-gradient(circle, var(--orange) 45%, transparent 47%);
+}
+
+/* ---- live stats ---- */
+.live { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.stat { background: var(--bg); border-radius: 14px; padding: 10px 12px; }
+.stat .k {
+  display: block; font-size: 11px; font-weight: 700; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--muted);
+}
+.stat .v { font-size: 19px; font-weight: 800; color: var(--head); }
+.stat.wide { grid-column: 1 / -1; }
+.stat .v.warn { color: var(--amber); }
+.stat .v.hot  { color: var(--red); }
+.stat .v.ok   { color: var(--green); }
+
+/* ---- toggles ---- */
+.toggles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.toggle {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  min-height: 62px; padding: 10px 14px;
+  background: var(--card-alt);
+  border: 2px solid var(--green);
+  border-radius: 14px; cursor: pointer;
+}
+.toggle span {
+  font-size: 12px; font-weight: 700; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .08em;
+}
+.toggle b { font-size: 19px; font-weight: 800; color: var(--green); }
+.toggle.off { border-color: var(--faint); background: var(--bg); }
+.toggle.off b { color: var(--muted); }
+
+/* ---- actions ---- */
+.actions { display: grid; gap: 10px; }
+.actions .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.actions button {
+  min-height: 52px; padding: 0 14px;
+  background: var(--orange); color: #fff;
+  border: 0; border-radius: 14px;
+  font-size: 16px; font-weight: 800; cursor: pointer;
+}
+.actions button:active { background: var(--orange-d); }
+.actions button.quiet {
+  background: var(--bg); color: var(--head);
+  border: 2px solid var(--line);
+}
+.actions button.quiet:active { background: var(--faint); }
+.actions button.confirming {
+  background: var(--red); color: #fff; border-color: var(--red);
+}
+
+/* ---- history ---- */
+.hist {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 9px 2px; border-top: 1px solid var(--line);
+}
+.hist:first-child { border-top: 0; }
+.hist .dot {
+  width: 9px; height: 9px; border-radius: 50%; margin-top: 5px;
+  background: var(--muted); flex: 0 0 auto;
+}
+.hist.claim .dot   { background: var(--orange); }
+.hist.ok .dot      { background: var(--green); }
+.hist.warn .dot    { background: var(--amber); }
+.hist.error .dot   { background: var(--red); }
+.hist.control .dot { background: var(--blue); }
+.hist .copy { flex: 1; min-width: 0; }
+.hist .copy b { display: block; font-size: 15px; font-weight: 700; }
+.hist .copy span {
+  display: block; font-size: 13px; color: var(--muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.hist time { font-size: 12px; color: var(--muted); flex: 0 0 auto; }
+
+/* ---- offline ---- */
+body.offline .panel { opacity: .55; }

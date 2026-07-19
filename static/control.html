@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f1ebdd">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Pi">
+<title>Pi Control</title>
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icon-180.png">
+<link rel="icon" href="/icon-192.png">
+<link rel="stylesheet" href="control.css">
+</head>
+<body>
+<main>
+  <header>
+    <p class="kicker">pi dashboard</p>
+    <h1>Control</h1>
+    <div id="status">connecting…</div>
+  </header>
+
+  <section class="panel">
+    <h2>Screen</h2>
+    <div id="screens" role="radiogroup" aria-label="Kiosk screen">
+      <div class="empty">loading…</div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Right Now</h2>
+    <div id="live" class="live">
+      <div class="empty">loading…</div>
+    </div>
+  </section>
+
+  <section class="panel toggles">
+    <button id="mute-btn" class="toggle" type="button" aria-pressed="false">
+      <span>Sound</span><b>on</b>
+    </button>
+    <button id="flash-btn" class="toggle" type="button" aria-pressed="true">
+      <span>Flash</span><b>on</b>
+    </button>
+  </section>
+
+  <section class="panel actions">
+    <button id="test-btn" type="button">Send Test Alert</button>
+    <div class="row">
+      <button id="screen-on-btn" class="half" type="button">Display On</button>
+      <button id="screen-off-btn" class="half" type="button">Display Off</button>
+    </div>
+    <div class="row">
+      <button id="refresh-btn" class="half quiet" type="button">Refresh Data</button>
+      <button id="reload-btn" class="half quiet" type="button">Reload Kiosk</button>
+    </div>
+    <button id="clear-btn" class="quiet" type="button">Clear History</button>
+  </section>
+
+  <section class="panel">
+    <h2>Recent Alerts</h2>
+    <div id="history">
+      <div class="empty">loading…</div>
+    </div>
+  </section>
+</main>
+<script src="control.js"></script>
+</body>
+</html>

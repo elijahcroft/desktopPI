@@ -16,6 +16,7 @@ import re
 import subprocess
 import sys
 import time
+import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -23,6 +24,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 # Config
 # ---------------------------------------------------------------------------
 PORT = 8080
+# 0.0.0.0 so phones on the LAN can reach it. Once the Cloudflare tunnel is up,
+# set BIND=127.0.0.1 in the unit's EnvironmentFile -- cloudflared connects to
+# localhost, and that is what makes trusting the Access header safe.
+BIND = os.environ.get("BIND", "0.0.0.0")
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 
 # Set to "lat,lon" (e.g. "51.5,-0.12") to hardcode weather location.
@@ -32,11 +37,74 @@ LOCATION = "33.83,-118.05"  # Fullerton / Long Beach area, CA
 # Syslog identifier the bot logs under (from `run.sh[17947]: ...`).
 BOT_IDENTIFIER = "run.sh"
 
+# Canvas: token is a secret -> read from env, never committed.
+#   CANVAS_TOKEN  personal access token (Account > Settings > New Access Token)
+#   CANVAS_URL    school host, e.g. https://csufullerton.instructure.com
+CANVAS_TOKEN = os.environ.get("CANVAS_TOKEN", "")
+CANVAS_URL = os.environ.get("CANVAS_URL", "https://csufullerton.instructure.com").rstrip("/")
+
 DEMO = "--demo" in sys.argv[1:]
+
+# Turn on once the Cloudflare tunnel is live (REQUIRE_AUTH=1 in the unit's
+# EnvironmentFile). Off by default so LAN-only setups keep working untouched.
+REQUIRE_AUTH = os.environ.get("REQUIRE_AUTH", "") not in ("", "0", "false")
 
 WEATHER_TTL = 600  # seconds
 _weather_cache = {"t": 0, "data": None}
 _latlon = None  # resolved once
+
+CANVAS_TTL = 900  # seconds -- Canvas is many requests; poll it rarely
+_canvas_cache = {"t": 0, "data": None}
+
+BOT_TTL = 3  # seconds -- see bot_status()
+_bot_cache = {"t": 0, "data": None}
+
+ALERT_HISTORY_LIMIT = 12
+_alert_history = []
+_seen_alert_keys = set()
+_last_claimable = None
+_last_running = None
+
+# Kiosk screens. One entry here + one file at static/screens/<id>.js is all a
+# new screen needs -- see README.
+SCREENS = [
+    {"id": "dashboard", "label": "Dashboard"},
+    {"id": "cats", "label": "Cats Chilling"},
+]
+_SCREEN_IDS = {s["id"] for s in SCREENS}
+
+_control = {
+    "muted": False,
+    "flash": True,
+    "test_until": 0,
+    "screen": "dashboard",
+    "reload_token": 0,
+}
+
+# Survives restarts so a reboot doesn't silently revert screen/mute choices.
+STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "state.json")
+_PERSIST_KEYS = ("muted", "flash", "screen")
+
+
+def load_state():
+    try:
+        with open(STATE_FILE) as f:
+            saved = json.load(f)
+    except (OSError, ValueError):
+        return
+    for k in _PERSIST_KEYS:
+        if k in saved:
+            _control[k] = saved[k]
+    if _control["screen"] not in _SCREEN_IDS:
+        _control["screen"] = "dashboard"
+
+
+def save_state():
+    try:
+        with open(STATE_FILE, "w") as f:
+            json.dump({k: _control[k] for k in _PERSIST_KEYS}, f)
+    except OSError:
+        pass  # a read-only disk shouldn't take the dashboard down
 
 
 # ---------------------------------------------------------------------------
@@ -222,12 +290,120 @@ def weather():
 # Bot status (journald)
 # ---------------------------------------------------------------------------
 POLL_RE = re.compile(r"polled\s+(\d+)\s+opportunities,\s+(\d+)\s+claimable")
+ERROR_RE = re.compile(r"\b(error|exception|traceback|failed|failure)\b", re.I)
+
+
+def add_alert_event(kind, title, detail="", ts=None, key=None):
+    if ts is None:
+        ts = time.time()
+    if key is None:
+        key = (kind, title, detail, int(ts))
+    if key in _seen_alert_keys:
+        return
+    _seen_alert_keys.add(key)
+    _alert_history.insert(0, {
+        "ts": ts,
+        "kind": kind,
+        "title": title,
+        "detail": detail,
+    })
+    del _alert_history[ALERT_HISTORY_LIMIT:]
+
+
+def update_bot_alerts(status):
+    global _last_claimable, _last_running
+
+    now = time.time()
+    running = bool(status.get("running"))
+    claimable = status.get("claimable")
+
+    if _last_running is None:
+        if running:
+            add_alert_event("ok", "Bot online", "polling recently", now, ("initial-online",))
+    elif running != _last_running:
+        if running:
+            add_alert_event("ok", "Bot online", "polling resumed")
+        else:
+            add_alert_event("warn", "Bot stale", "no poll in 2 minutes")
+    _last_running = running
+
+    if claimable is None:
+        return
+    claimable = int(claimable)
+    prev = _last_claimable
+    event_ts = status.get("last_poll") or now
+
+    if prev is None:
+        if claimable > 0:
+            add_alert_event(
+                "claim",
+                "Claimable found",
+                f"{claimable} ready out of {status.get('opportunities') or '?'}",
+                event_ts,
+                ("initial-claim", claimable),
+            )
+    elif claimable > 0 and prev <= 0:
+        add_alert_event(
+            "claim",
+            "Claimable found",
+            f"{claimable} ready out of {status.get('opportunities') or '?'}",
+            event_ts,
+        )
+    elif claimable <= 0 and prev > 0:
+        add_alert_event("ok", "Claimable cleared", "back to zero", event_ts)
+    _last_claimable = claimable
+
+
+def alerts_payload():
+    return {
+        "history": _alert_history,
+        "muted": bool(_control["muted"]),
+        "flash": bool(_control["flash"]),
+        "test": time.time() < float(_control.get("test_until", 0)),
+    }
+
+
+def set_display_power(on):
+    """Blank/wake the kiosk display. Tries the no-sudo path first (vcgencmd
+    usually works for users in the `video` group), then sudo, then wlopm for
+    Wayland stacks where vcgencmd silently no-ops. Returns True if one worked.
+    """
+    arg = "1" if on else "0"
+    attempts = [
+        ["vcgencmd", "display_power", arg],
+        ["sudo", "-n", "/usr/bin/vcgencmd", "display_power", arg],
+        ["wlopm", "--on" if on else "--off", "*"],
+    ]
+    for cmd in attempts:
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if r.returncode == 0:
+            return True
+    return False
+
+
+def state_payload():
+    """The one payload both GET endpoints return, so the phone sees exactly
+    what the kiosk sees. Calling this is also what advances alert history."""
+    return {
+        "now": time.time(),
+        "system": system_stats(),
+        "weather": weather(),
+        "bot": bot_status(),
+        "canvas": canvas(),
+        "alerts": alerts_payload(),
+        "screen": _control["screen"],
+        "screens": SCREENS,
+        "reload_token": _control["reload_token"],
+    }
 
 
 def _demo_bot():
     # Occasionally surface a claimable to exercise the alert path.
     claimable = 1 if int(time.time()) % 30 < 6 else 0
-    return {
+    status = {
         "running": True,
         "mode": "alert",
         "logged_in": True,
@@ -235,9 +411,23 @@ def _demo_bot():
         "claimable": claimable,
         "last_poll": time.time() - 5,
     }
+    update_bot_alerts(status)
+    return status
 
 
 def bot_status():
+    """Memoized briefly: both /api/stats and /api/control call this, and each
+    miss shells out to journalctl. Two pollers at 5s would otherwise spawn ~24
+    subprocesses a minute on a Pi."""
+    now = time.time()
+    if _bot_cache["data"] is not None and now - _bot_cache["t"] < BOT_TTL:
+        return _bot_cache["data"]
+    data = _bot_status_uncached()
+    _bot_cache.update(t=now, data=data)
+    return data
+
+
+def _bot_status_uncached():
     if DEMO:
         return _demo_bot()
 
@@ -269,6 +459,17 @@ def bot_status():
                 status["mode"] = m.group(1)
         if "session is live" in msg:
             status["logged_in"] = True
+        if ERROR_RE.search(msg):
+            clean = msg.strip()
+            if len(clean) > 120:
+                clean = clean[:117] + "..."
+            add_alert_event(
+                "error",
+                "Bot log error",
+                clean,
+                ts or time.time(),
+                ("journal-error", ts, clean),
+            )
         m = POLL_RE.search(msg)
         if m:
             status["opportunities"] = int(m.group(1))
@@ -277,7 +478,80 @@ def bot_status():
 
     if status["last_poll"]:
         status["running"] = (time.time() - status["last_poll"]) < 120
+    update_bot_alerts(status)
     return status
+
+
+# ---------------------------------------------------------------------------
+# Canvas assignments (needs a personal access token -- the one keyed feature)
+# ---------------------------------------------------------------------------
+def _canvas_get(path, params=None):
+    url = f"{CANVAS_URL}/api/v1{path}"
+    if params:
+        url += "?" + urllib.parse.urlencode(params)
+    req = urllib.request.Request(url, headers={
+        "Authorization": f"Bearer {CANVAS_TOKEN}",
+        "User-Agent": "pi-dashboard/1.0",
+    })
+    with urllib.request.urlopen(req, timeout=12) as r:
+        return json.loads(r.read().decode())
+
+
+def _demo_canvas():
+    day = 86400
+    now = time.time()
+    mk = lambda offs: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now + offs))
+    return {
+        "linked": True,
+        "items": [
+            {"course": "MATH 250B", "title": "Homework 4", "due": mk(1 * day)},
+            {"course": "CPSC 335",  "title": "Algorithm Quiz", "due": mk(2 * day + 3600)},
+            {"course": "PHYS 226",  "title": "Lab Report 5", "due": mk(4 * day)},
+            {"course": "CPSC 349",  "title": "Web Project Milestone", "due": mk(6 * day)},
+        ],
+    }
+
+
+def canvas():
+    """Upcoming assignments across active courses. Cached; token-gated."""
+    now = time.time()
+    if _canvas_cache["data"] and now - _canvas_cache["t"] < CANVAS_TTL:
+        return _canvas_cache["data"]
+
+    if DEMO:
+        data = _demo_canvas()
+        _canvas_cache.update(t=now, data=data)
+        return data
+
+    if not CANVAS_TOKEN:
+        return {"linked": False, "items": []}
+
+    try:
+        courses = _canvas_get("/courses", {"enrollment_state": "active",
+                                           "per_page": 100})
+        items = []
+        for c in courses:
+            if not isinstance(c, dict) or "id" not in c:
+                continue
+            assigns = _canvas_get(
+                f"/courses/{c['id']}/assignments",
+                {"bucket": "upcoming", "per_page": 50, "order_by": "due_at"},
+            )
+            for a in assigns:
+                if a.get("due_at"):
+                    items.append({
+                        "course": c.get("name") or "",
+                        "title": a.get("name") or "",
+                        "due": a["due_at"],
+                        "url": a.get("html_url"),
+                    })
+        items.sort(key=lambda x: x["due"])
+        data = {"linked": True, "items": items[:8]}
+        _canvas_cache.update(t=now, data=data)
+        return data
+    except Exception:
+        # Keep showing the last good list on a transient/expired-token error.
+        return _canvas_cache["data"] or {"linked": True, "items": [], "error": True}
 
 
 # ---------------------------------------------------------------------------
@@ -286,13 +560,39 @@ def bot_status():
 CONTENT_TYPES = {
     ".html": "text/html", ".css": "text/css", ".js": "application/javascript",
     ".ttf": "font/ttf", ".png": "image/png", ".svg": "image/svg+xml",
-    ".ico": "image/x-icon",
+    ".ico": "image/x-icon", ".json": "application/manifest+json",
 }
+
+
+def read_json_body(handler):
+    try:
+        n = int(handler.headers.get("Content-Length", "0"))
+    except ValueError:
+        n = 0
+    if n <= 0:
+        return {}
+    if n > 4096:
+        raise ValueError("request too large")
+    return json.loads(handler.rfile.read(n).decode() or "{}")
 
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass  # quiet
+
+    def _authed(self):
+        """Local requests (the kiosk) always pass. Remote ones must carry the
+        header Cloudflare Access sets after it verifies identity at the edge.
+
+        This is only safe because cloudflared connects to 127.0.0.1 -- if port
+        8080 is ever exposed directly, that header becomes a trivial bypass.
+        REQUIRE_AUTH stays off until the tunnel is actually up.
+        """
+        if not REQUIRE_AUTH:
+            return True
+        if self.client_address[0] in ("127.0.0.1", "::1"):
+            return True
+        return bool(self.headers.get("Cf-Access-Authenticated-User-Email"))
 
     def _send(self, code, body, ctype):
         self.send_response(code)
@@ -305,17 +605,16 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = self.path.split("?", 1)[0]
 
-        if path == "/api/stats":
-            payload = {
-                "now": time.time(),
-                "system": system_stats(),
-                "weather": weather(),
-                "bot": bot_status(),
-            }
-            self._send(200, json.dumps(payload).encode(), "application/json")
+        if path in ("/api/stats", "/api/control"):
+            if not self._authed():
+                self._send(403, b"forbidden", "text/plain")
+                return
+            self._send(200, json.dumps(state_payload()).encode(), "application/json")
             return
 
-        rel = "index.html" if path in ("/", "") else path.lstrip("/")
+        rel = "index.html" if path in ("/", "") else (
+            "control.html" if path == "/control" else path.lstrip("/")
+        )
         full = os.path.normpath(os.path.join(STATIC_DIR, rel))
         if not full.startswith(STATIC_DIR) or not os.path.isfile(full):
             self._send(404, b"not found", "text/plain")
@@ -324,11 +623,82 @@ class Handler(BaseHTTPRequestHandler):
         with open(full, "rb") as f:
             self._send(200, f.read(), CONTENT_TYPES.get(ext, "application/octet-stream"))
 
+    def do_POST(self):
+        path = self.path.split("?", 1)[0]
+        if path != "/api/control":
+            self._send(404, b"not found", "text/plain")
+            return
+        if not self._authed():
+            self._send(403, b"forbidden", "text/plain")
+            return
+        try:
+            body = read_json_body(self)
+        except (ValueError, json.JSONDecodeError):
+            self._send(400, b"bad json", "text/plain")
+            return
+
+        if "muted" in body:
+            _control["muted"] = bool(body["muted"])
+            add_alert_event(
+                "control",
+                "Sound muted" if _control["muted"] else "Sound enabled",
+                "changed from remote control",
+            )
+        if "flash" in body:
+            _control["flash"] = bool(body["flash"])
+            add_alert_event(
+                "control",
+                "Flash enabled" if _control["flash"] else "Flash disabled",
+                "changed from remote control",
+            )
+        if body.get("test_alert"):
+            _control["test_until"] = time.time() + 10
+            add_alert_event("control", "Test alert", "sent from remote control")
+        if body.get("clear_history"):
+            _alert_history.clear()
+            add_alert_event("control", "History cleared", "remote control")
+
+        if "screen" in body:
+            want = str(body["screen"])
+            if want not in _SCREEN_IDS:
+                self._send(400, b"unknown screen", "text/plain")
+                return
+            if want != _control["screen"]:
+                _control["screen"] = want
+                add_alert_event("control", f"Screen: {want}", "changed from remote control")
+
+        if "refresh" in body:
+            what = str(body["refresh"])
+            if what in ("weather", "all"):
+                _weather_cache["t"] = 0
+            if what in ("canvas", "all"):
+                _canvas_cache["t"] = 0
+            add_alert_event("control", f"Refreshed {what}", "remote control")
+
+        action = body.get("action")
+        if action == "reload_kiosk":
+            _control["reload_token"] = int(time.time())
+            add_alert_event("control", "Kiosk reloaded", "remote control")
+        elif action in ("screen_on", "screen_off"):
+            on = action == "screen_on"
+            ok = set_display_power(on)
+            add_alert_event(
+                "control",
+                "Display on" if on else "Display off",
+                "remote control" if ok else "command failed -- see README",
+            )
+
+        if any(k in body for k in _PERSIST_KEYS):
+            save_state()
+
+        self._send(200, json.dumps(state_payload()).encode(), "application/json")
+
 
 def main():
-    srv = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
+    load_state()
+    srv = ThreadingHTTPServer((BIND, PORT), Handler)
     mode = "DEMO" if DEMO else "live"
-    print(f"[dashboard] serving on http://localhost:{PORT}  ({mode} mode)")
+    print(f"[dashboard] serving on http://{BIND}:{PORT}  ({mode} mode)")
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

@@ -8,6 +8,7 @@ Requires Pillow (only for this dev-time step; the dashboard itself needs nothing
     python3 build_cat.py                 # default: orange tabby (cat 1.6)
     python3 build_cat.py "cat 1.png"     # grey tabby
     python3 build_cat.py "cat 1.9.png"   # white
+    python3 build_cat.py --icons         # PWA icons for the phone app
 """
 import os
 import sys
@@ -27,7 +28,38 @@ CLIPS = [
 ]
 
 
+BG = (241, 235, 221, 255)  # --bg from style.css
+ICON_SIZES = [(192, "icon-192.png"), (512, "icon-512.png"), (180, "icon-180.png")]
+
+
+def build_icons():
+    """PWA icons for the phone app: the sit frame on the dashboard's cream,
+    nearest-neighbour upscaled so it stays crisp pixel art.
+
+    Padded to ~60% of the canvas so it survives Android's maskable crop.
+    """
+    sheet = Image.open(OUT).convert("RGBA")
+    face = sheet.crop((0, 4 * S, S, 5 * S))          # first frame of the sit row
+    face = face.crop(face.getbbox())                  # drop the transparent margin
+    for size, name in ICON_SIZES:
+        canvas = Image.new("RGBA", (size, size), BG)
+        # ~78% of the canvas, integer-scaled so the pixels stay square.
+        mult = max(1, int(size * 0.78) // max(face.width, face.height))
+        w, h = face.width * mult, face.height * mult
+        canvas.alpha_composite(
+            face.resize((w, h), Image.NEAREST),
+            ((size - w) // 2, (size - h) // 2),
+        )
+        path = os.path.join(HERE, "static", name)
+        canvas.convert("RGB").save(path)
+        print(f"wrote {path}  ({size}x{size})")
+
+
 def main():
+    if "--icons" in sys.argv[1:]:
+        build_icons()
+        return
+
     variant = sys.argv[1] if len(sys.argv) > 1 else "cat 1.6.png"
     src = Image.open(os.path.join(PACK, variant)).convert("RGBA")
     maxf = max(n for _, _, n in CLIPS)

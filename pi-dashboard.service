@@ -8,6 +8,13 @@ Type=simple
 # Adjust User/paths if you deploy somewhere other than /home/ej/pi
 User=ej
 WorkingDirectory=/home/ej/pi
+# Secrets and deployment switches live here (CANVAS_TOKEN, BIND, REQUIRE_AUTH).
+# The leading "-" makes it optional so the unit still starts without the file.
+# Without this the service runs with an empty CANVAS_TOKEN and Canvas silently
+# shows "link canvas" -- it only ever worked when run by hand from a shell.
+EnvironmentFile=-/home/ej/pi/.env
+# Needed by wlopm, the Wayland fallback for display on/off.
+Environment=XDG_RUNTIME_DIR=/run/user/1000
 ExecStart=/usr/bin/python3 /home/ej/pi/server.py
 Restart=on-failure
 RestartSec=3
