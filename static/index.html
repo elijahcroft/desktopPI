@@ -12,13 +12,13 @@
   <!-- ---- sidebar ---- -->
   <aside id="sidebar">
     <div class="brand"><span class="brand-cat">🐱</span> a-to-z</div>
-    <nav class="nav">
-      <a class="nav-item active"><span class="ic">🏠</span> dashboard</a>
-      <a class="nav-item"><span class="ic">📈</span> system</a>
-      <a class="nav-item"><span class="ic">🤖</span> bot</a>
-      <a class="nav-item"><span class="ic">🔔</span> alerts</a>
-      <a class="nav-item"><span class="ic">⚙️</span> settings</a>
-    </nav>
+    <div class="nav">
+      <div class="nav-item active"><span class="ic">🏠</span> dashboard</div>
+      <div class="nav-item"><span class="ic">📈</span> system</div>
+      <div class="nav-item"><span class="ic">🤖</span> bot</div>
+      <div class="nav-item"><span class="ic">🔔</span> alerts</div>
+      <div class="nav-item"><span class="ic">⚙️</span> settings</div>
+    </div>
     <div class="side-foot">
       <span class="online"><i></i> system online</span>
       <span id="uptime">up —</span>
@@ -76,7 +76,7 @@
 
       <!-- bot -->
       <section id="bot-card" class="card">
-        <h2>a-to-z bot <span id="bot-dot" class="dot"></span> <span class="viewall">view all →</span></h2>
+        <h2>a-to-z bot <span id="bot-dot" class="dot"></span></h2>
         <div class="bot-line"><span class="ic">⟨⟩</span><span>mode</span><b id="bot-mode">—</b></div>
         <div class="bot-line"><span class="ic">◎</span><span>opportunities</span><b id="bot-opps">—</b></div>
         <div class="bot-line"><span class="ic">🕒</span><span>last poll</span><b id="bot-poll">—</b></div>
@@ -87,21 +87,15 @@
         <div class="claim-plus">✦</div>
         <b id="claim-n">0</b>
         <span class="claim-lbl">claimable</span>
-        <div id="claim-btn">Claim now →</div>
       </section>
 
     </div>
 
-    <!-- ---- bottom dock ---- -->
+    <!-- ---- bottom dock (status strip) ---- -->
     <div id="dock">
-      <div id="edit-btn">Edit</div>
       <div class="dock-mid">
         <span class="term">🌱 <span class="prompt">&gt;_ ~/dashboard</span></span>
         <span class="tagline">Stay curious. Build things. Help others.</span>
-      </div>
-      <div class="dock-icons">
-        <span>⌥</span><span>✉️</span><span>📅</span>
-        <span class="dl">⬇</span>
       </div>
     </div>
   </main>
