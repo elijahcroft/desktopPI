@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1024, initial-scale=1">
+<title>livingroom</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- ---- sidebar ---- -->
+  <aside id="sidebar">
+    <div class="brand"><span class="brand-cat">🐱</span> a-to-z</div>
+    <nav class="nav">
+      <a class="nav-item active"><span class="ic">🏠</span> dashboard</a>
+      <a class="nav-item"><span class="ic">📈</span> system</a>
+      <a class="nav-item"><span class="ic">🤖</span> bot</a>
+      <a class="nav-item"><span class="ic">🔔</span> alerts</a>
+      <a class="nav-item"><span class="ic">⚙️</span> settings</a>
+    </nav>
+    <div class="side-foot">
+      <span class="online"><i></i> system online</span>
+      <span id="uptime">up —</span>
+    </div>
+  </aside>
+
+  <!-- ---- main ---- -->
+  <main id="main">
+    <div id="screen">
+
+      <!-- clock + week -->
+      <section id="clock-card" class="card">
+        <div class="clock-top">
+          <div id="time">--:--</div><span id="ampm">AM</span>
+        </div>
+        <div id="date">loading…</div>
+        <div id="week"></div>
+      </section>
+
+      <!-- weather -->
+      <section id="weather-card" class="card">
+        <div class="wx-head">
+          <canvas id="wx-icon" width="64" height="64"></canvas>
+          <div class="wx-text">
+            <div id="wx-temp">--°</div>
+            <div id="wx-label">weather</div>
+            <div id="wx-meta"></div>
+          </div>
+        </div>
+        <div class="wx-rows">
+          <div class="wx-row"><span class="ic">💧</span><span class="k">Humidity</span>
+            <div class="wx-bar"><i id="wx-hum-bar"></i></div><b id="wx-hum">--</b></div>
+          <div class="wx-row"><span class="ic">💨</span><span class="k">Wind</span>
+            <b id="wx-wind" class="r">--</b></div>
+          <div class="wx-row"><span class="ic">🌅</span><span class="k">Sunrise</span>
+            <b id="wx-sunrise" class="r">--</b></div>
+          <div class="wx-row"><span class="ic">🌇</span><span class="k">Sunset</span>
+            <b id="wx-sunset" class="r">--</b></div>
+        </div>
+      </section>
+
+      <!-- pet: the rug is the cat's bed; the cat roams the whole screen -->
+      <section id="pet-card" class="card">
+        <div id="yard"><div id="bed-label">🧶 cat bed</div></div>
+      </section>
+
+      <!-- system stats -->
+      <section id="stats-card" class="card">
+        <h2>system <span class="pulse">〜</span></h2>
+        <div class="gauge" data-k="cpu"><span class="ic">🖥️</span><span class="lbl">CPU</span><div class="bar"><i></i></div><span class="val">--</span></div>
+        <div class="gauge" data-k="mem"><span class="ic">🧠</span><span class="lbl">RAM</span><div class="bar"><i></i></div><span class="val">--</span></div>
+        <div class="gauge" data-k="temp"><span class="ic">🌡️</span><span class="lbl">TMP</span><div class="bar"><i></i></div><span class="val">--</span></div>
+        <div class="gauge" data-k="disk"><span class="ic">💽</span><span class="lbl">DSK</span><div class="bar"><i></i></div><span class="val">--</span></div>
+      </section>
+
+      <!-- bot -->
+      <section id="bot-card" class="card">
+        <h2>a-to-z bot <span id="bot-dot" class="dot"></span> <span class="viewall">view all →</span></h2>
+        <div class="bot-line"><span class="ic">⟨⟩</span><span>mode</span><b id="bot-mode">—</b></div>
+        <div class="bot-line"><span class="ic">◎</span><span>opportunities</span><b id="bot-opps">—</b></div>
+        <div class="bot-line"><span class="ic">🕒</span><span>last poll</span><b id="bot-poll">—</b></div>
+      </section>
+
+      <!-- claimable -->
+      <section id="claim-card" class="card">
+        <div class="claim-plus">✦</div>
+        <b id="claim-n">0</b>
+        <span class="claim-lbl">claimable</span>
+        <div id="claim-btn">Claim now →</div>
+      </section>
+
+    </div>
+
+    <!-- ---- bottom dock ---- -->
+    <div id="dock">
+      <div id="edit-btn">Edit</div>
+      <div class="dock-mid">
+        <span class="term">🌱 <span class="prompt">&gt;_ ~/dashboard</span></span>
+        <span class="tagline">Stay curious. Build things. Help others.</span>
+      </div>
+      <div class="dock-icons">
+        <span>⌥</span><span>✉️</span><span>📅</span>
+        <span class="dl">⬇</span>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- full-screen roaming layer: the cat floats over everything -->
+<div id="petlayer">
+  <div id="cat"></div>
+  <div id="cat-say"></div>
+</div>
+
+<div id="flash"></div>
+<script src="pet.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

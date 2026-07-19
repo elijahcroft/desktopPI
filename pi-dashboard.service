@@ -1,0 +1,16 @@
+[Unit]
+Description=Cozy pixel-art Pi dashboard backend
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Adjust User/paths if you deploy somewhere other than /home/ej/pi
+User=ej
+WorkingDirectory=/home/ej/pi
+ExecStart=/usr/bin/python3 /home/ej/pi/server.py
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
