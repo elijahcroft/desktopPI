@@ -82,11 +82,23 @@ registerScreen({
           <div class="bot-line"><span class="ic">🕒</span><span>last poll</span><b id="bot-poll">—</b></div>
         </section>
 
-        <!-- claimable -->
-        <section id="claim-card" class="card">
-          <div class="claim-plus">✦</div>
-          <b id="claim-n">0</b>
-          <span class="claim-lbl">claimable</span>
+        <!-- claude usage -->
+        <section id="dash-claude" class="card">
+          <h2>claude <span class="pulse">✳</span></h2>
+          <div class="dc-body">
+            <div class="dc-head">
+              <span id="dc-pct">--</span>
+              <span id="dc-sub">context used</span>
+            </div>
+            <div class="dc-track"><i></i></div>
+            <svg id="dc-spark" viewBox="0 0 100 24" preserveAspectRatio="none">
+              <polyline points=""></polyline>
+            </svg>
+            <div class="dc-meta">
+              <span id="dc-tok">—</span>
+              <span id="dc-host"></span>
+            </div>
+          </div>
         </section>
 
       </div>
@@ -271,6 +283,57 @@ function renderHistory(alerts) {
     `${alerts && alerts.flash === false ? "flash off" : "flash on"}`;
 }
 
+// ---- claude usage (mirrors the standalone claude screen, compact) ----
+function fmtTokens(n) {
+  if (n == null) return null;
+  return n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1) + "k" : String(n);
+}
+
+function drawSpark(vals) {
+  const poly = document.querySelector("#dc-spark polyline");
+  if (!poly) return;
+  if (!vals || vals.length < 2) { poly.setAttribute("points", ""); return; }
+  const n = vals.length;
+  poly.setAttribute("points", vals.map((v, i) => {
+    const x = (i / (n - 1)) * 100;
+    const y = 24 - (Math.max(0, Math.min(100, v)) / 100) * 24;
+    return x.toFixed(1) + "," + y.toFixed(1);
+  }).join(" "));
+}
+
+function renderClaude(c) {
+  c = c || {};
+  const card = $("dash-claude");
+  const fill = document.querySelector("#dash-claude .dc-track i");
+  const pctEl = $("dc-pct");
+  const sub = $("dc-sub");
+  if (!card) return;
+
+  drawSpark(c.spark);
+
+  // token count · which machine the session is on
+  const tok = fmtTokens(c.tokens);
+  $("dc-tok").textContent = tok
+    ? `${tok} · ${c.model || "claude"}`
+    : (c.model || "");
+  $("dc-host").textContent = c.host || "";
+
+  if (c.pct == null) {
+    fill.style.width = "0%";
+    card.classList.remove("warn", "hot");
+    pctEl.textContent = c.linked === false ? "—" : "idle";
+    sub.textContent = c.linked === false ? "not logged in" : "no session yet";
+    return;
+  }
+
+  const pct = Math.max(0, Math.min(100, c.pct));
+  fill.style.width = pct + "%";
+  pctEl.textContent = Math.round(pct) + "%";
+  sub.textContent = c.active ? "context used" : "context used · idle";
+  card.classList.toggle("warn", pct >= 60 && pct < 85);
+  card.classList.toggle("hot", pct >= 85);
+}
+
 function render(d) {
   // weather
   const w = d.weather;
@@ -309,13 +372,13 @@ function render(d) {
   $("bot-mode").classList.toggle("alert", b.mode === "alert");
   $("bot-opps").textContent = b.opportunities ?? "—";
   $("bot-poll").textContent = ago(b.last_poll);
-  const claim = b.claimable || 0;
-  $("claim-n").textContent = claim;
 
-  // the shell owns body.alert / the beep; this is just the card's own state
+  // claude usage (context-used bar of the latest local session)
+  renderClaude(d.claude);
+
+  // the shell owns body.alert / the beep; the pet still reacts to claimables
   const a = d.alerts || {};
-  const alerting = claim > 0 || !!a.test;
-  $("claim-card").classList.toggle("alert", alerting);
+  const alerting = (b.claimable || 0) > 0 || !!a.test;
 
   if (pet) pet.celebrate(alerting);
 

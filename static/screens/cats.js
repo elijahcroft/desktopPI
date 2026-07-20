@@ -13,10 +13,12 @@ registerScreen({
     // Slower than the dashboard cat and no "claimable!" chatter — the whole
     // point of this screen is that nothing is urgent.
     const says = ["mrrp?", "prrr…", "nya~", "*yawn*", "mew", "…", "zzz"];
-    cats = [0, 1, 2].map(() => createPet(ctx.petLayer, {
+    const variants = ["orange", "orange", "grey", "white", "grey"];
+    cats = variants.map((variant) => createPet(ctx.petLayer, {
       bed: null,                       // nap wherever they happen to be
       speed: 22 + Math.random() * 14,
       says,
+      variant,
     }));
   },
 

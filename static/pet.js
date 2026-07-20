@@ -7,6 +7,7 @@
      opts.bed    () => ({x, y}) | null   where to nap; null = nap in place
      opts.speed  walk px/sec (default 44)
      opts.says   array of things it says
+     opts.variant  "orange" (default) | "grey" | "white" — sprite color
    Multiple pets can share one layer — that's what the cats screen uses. */
 (function () {
   const SCALE = 3;
@@ -35,7 +36,7 @@
     const says = opts.says || MEOWS;
 
     const cat = document.createElement("div");
-    cat.className = "cat";
+    cat.className = "cat" + (opts.variant && opts.variant !== "orange" ? " cat-" + opts.variant : "");
     const sayEl = document.createElement("div");
     sayEl.className = "cat-say";
     layer.appendChild(cat);

@@ -13,6 +13,7 @@ Usage:
 import json
 import os
 import re
+import socket
 import subprocess
 import sys
 import time
@@ -59,6 +60,28 @@ _canvas_cache = {"t": 0, "data": None}
 BOT_TTL = 3  # seconds -- see bot_status()
 _bot_cache = {"t": 0, "data": None}
 
+# Claude Code context-window usage, read from the most recent local transcript
+# under ~/.claude. Cheap (one tail read) so a short cache is plenty.
+CLAUDE_TTL = 5  # seconds
+_claude_cache = {"t": 0, "data": None}
+CLAUDE_PROJECTS = os.path.expanduser("~/.claude/projects")
+CONTEXT_WINDOW = 200000  # Opus/Sonnet auto-compact window
+
+# Sparkline of recent context%. In-memory (a reboot starts fresh); one point
+# every CLAUDE_HISTORY_EVERY seconds keeps the trend readable, not jittery.
+CLAUDE_HISTORY_MAX = 60
+CLAUDE_HISTORY_EVERY = 30
+_claude_history = []  # [(ts, pct)]
+
+# A session on another machine (e.g. the laptop) reports here via POST /api/claude.
+# The card shows whichever machine -- local disk or remote -- was active most
+# recently, so a laptop session becomes visible on the Pi. We compare each
+# side's last-activity time (transcript mtime); `recv` is only a liveness guard
+# so a dead reporter's last report stops counting after REMOTE_TTL.
+REMOTE_TTL = 90  # seconds: drop a remote report if the reporter goes silent
+_remote_claude = {"data": None, "recv": 0.0, "ts": 0.0}
+LOCAL_HOST = os.environ.get("HOST_LABEL") or socket.gethostname()
+
 ALERT_HISTORY_LIMIT = 12
 _alert_history = []
 _seen_alert_keys = set()
@@ -71,6 +94,7 @@ SCREENS = [
     {"id": "dashboard", "label": "Dashboard"},
     {"id": "assignments", "label": "Assignments"},
     {"id": "cats", "label": "Cats Chilling"},
+    {"id": "claude", "label": "Claude Usage"},
 ]
 _SCREEN_IDS = {s["id"] for s in SCREENS}
 
@@ -394,6 +418,7 @@ def state_payload():
         "weather": weather(),
         "bot": bot_status(),
         "canvas": canvas(),
+        "claude": claude_usage(),
         "alerts": alerts_payload(),
         "screen": _control["screen"],
         "screens": SCREENS,
@@ -562,6 +587,150 @@ def canvas():
 
 
 # ---------------------------------------------------------------------------
+# Claude Code usage (context-window fill of the most recent local session)
+# ---------------------------------------------------------------------------
+# This is the "context used" number the CLI shows, NOT the /usage plan limit --
+# that 5h/weekly percentage is fetched live and never written to disk, so it
+# can't be read here. Log into Claude on the Pi and use it; this reflects the
+# most recently active session.
+def _latest_transcript():
+    latest, latest_m = None, 0.0
+    try:
+        for base, _dirs, files in os.walk(CLAUDE_PROJECTS):
+            for name in files:
+                if not name.endswith(".jsonl"):
+                    continue
+                p = os.path.join(base, name)
+                try:
+                    m = os.path.getmtime(p)
+                except OSError:
+                    continue
+                if m > latest_m:
+                    latest, latest_m = p, m
+    except OSError:
+        pass
+    return latest, latest_m
+
+
+def _last_usage(path):
+    """(tokens, model) from the last message that carries usage, else (None, None).
+    Reads only the tail -- transcripts grow large and we want the newest turn."""
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            f.seek(max(0, size - 262144))
+            lines = f.read().decode("utf-8", "ignore").splitlines()
+    except OSError:
+        return None, None
+    for line in reversed(lines):
+        try:
+            o = json.loads(line)
+        except ValueError:
+            continue  # a tail-truncated first line, or non-JSON -- skip
+        m = o.get("message") or {}
+        u = m.get("usage") or o.get("usage")
+        if u and ("input_tokens" in u or "cache_read_input_tokens" in u):
+            tokens = (u.get("input_tokens", 0)
+                      + u.get("cache_creation_input_tokens", 0)
+                      + u.get("cache_read_input_tokens", 0))
+            return tokens, m.get("model")
+    return None, None
+
+
+def _short_model(model):
+    """'claude-opus-4-8' -> 'opus-4-8'; None stays None."""
+    return model.replace("claude-", "").strip() if model else None
+
+
+def _record_history(pct):
+    now = time.time()
+    if _claude_history and now - _claude_history[-1][0] < CLAUDE_HISTORY_EVERY:
+        return
+    _claude_history.append((now, round(pct, 1)))
+    del _claude_history[:-CLAUDE_HISTORY_MAX]
+
+
+def record_remote_claude(body):
+    """Store a usage report POSTed by another machine (see claude_reporter.py).
+    `ts` is the reporter's last-activity time (its transcript mtime); we fall
+    back to now if it's missing so an old session can't masquerade as fresh."""
+    now = time.time()
+    try:
+        pct = float(body["pct"])
+    except (KeyError, TypeError, ValueError):
+        pct = None
+    try:
+        ts = float(body["ts"])
+    except (KeyError, TypeError, ValueError):
+        ts = now
+    _remote_claude["data"] = {
+        "linked": True,
+        "pct": None if pct is None else max(0.0, min(100.0, round(pct, 1))),
+        "tokens": int(body.get("tokens") or 0) or None,
+        "model": (_short_model(str(body["model"])[:24]) if body.get("model") else None),
+        "active": bool(body.get("active")),
+        "host": (str(body["host"])[:16] if body.get("host") else "remote"),
+    }
+    _remote_claude["recv"] = now
+    _remote_claude["ts"] = ts
+
+
+def claude_usage():
+    now = time.time()
+    if _claude_cache["data"] is not None and now - _claude_cache["t"] < CLAUDE_TTL:
+        return _claude_cache["data"]
+
+    if DEMO:
+        pct = 9 + int(now / 3) % 40
+        _record_history(pct)
+        data = {"linked": True, "pct": pct, "tokens": pct * CONTEXT_WINDOW // 100,
+                "active": True, "model": "opus-4-8", "host": LOCAL_HOST,
+                "spark": [p for _, p in _claude_history]}
+        _claude_cache.update(t=now, data=data)
+        return data
+
+    # Local candidate: the newest transcript on this machine's disk.
+    local, local_act = None, 0.0
+    path, mtime = _latest_transcript()
+    if path:
+        tokens, model = _last_usage(path)
+        if tokens is None:
+            local = {"linked": True, "pct": None}
+        else:
+            local = {
+                "linked": True,
+                "pct": round(100.0 * tokens / CONTEXT_WINDOW, 1),
+                "tokens": tokens,
+                "model": _short_model(model),
+                "active": (now - mtime) < 120,  # a turn landed in the last 2 min
+                "host": LOCAL_HOST,
+            }
+        local_act = mtime
+
+    # Remote candidate: last report from another machine, ignored once the
+    # reporter goes silent. Compare last-activity times so an idle-but-reporting
+    # laptop doesn't mask a live session on the Pi.
+    remote = _remote_claude["data"]
+    remote_live = remote and (now - _remote_claude["recv"] < REMOTE_TTL)
+    remote_act = _remote_claude["ts"] if remote_live else 0.0
+
+    if remote_live and remote_act >= local_act:
+        data = dict(remote)
+    elif local:
+        data = dict(local)
+    else:
+        data = {"linked": False, "pct": None}
+
+    if data.get("pct") is not None:
+        _record_history(data["pct"])
+    data["spark"] = [p for _, p in _claude_history]
+
+    _claude_cache.update(t=now, data=data)
+    return data
+
+
+# ---------------------------------------------------------------------------
 # HTTP
 # ---------------------------------------------------------------------------
 CONTENT_TYPES = {
@@ -632,7 +801,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = self.path.split("?", 1)[0]
-        if path != "/api/control":
+        if path not in ("/api/control", "/api/claude"):
             self._send(404, b"not found", "text/plain")
             return
         if not self._authed():
@@ -642,6 +811,11 @@ class Handler(BaseHTTPRequestHandler):
             body = read_json_body(self)
         except (ValueError, json.JSONDecodeError):
             self._send(400, b"bad json", "text/plain")
+            return
+
+        if path == "/api/claude":
+            record_remote_claude(body)
+            self._send(200, b'{"ok":true}', "application/json")
             return
 
         if "muted" in body:
