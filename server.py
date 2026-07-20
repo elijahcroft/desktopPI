@@ -69,6 +69,7 @@ _last_running = None
 # new screen needs -- see README.
 SCREENS = [
     {"id": "dashboard", "label": "Dashboard"},
+    {"id": "assignments", "label": "Assignments"},
     {"id": "cats", "label": "Cats Chilling"},
 ]
 _SCREEN_IDS = {s["id"] for s in SCREENS}
@@ -508,6 +509,12 @@ def _demo_canvas():
             {"course": "CPSC 335",  "title": "Algorithm Quiz", "due": mk(2 * day + 3600)},
             {"course": "PHYS 226",  "title": "Lab Report 5", "due": mk(4 * day)},
             {"course": "CPSC 349",  "title": "Web Project Milestone", "due": mk(6 * day)},
+            {"course": "MATH 250B", "title": "Homework 5", "due": mk(8 * day)},
+            {"course": "ENGL 102",  "title": "Essay Draft 2", "due": mk(9 * day)},
+            {"course": "CPSC 335",  "title": "Midterm Review Set", "due": mk(10 * day)},
+            {"course": "PHYS 226",  "title": "Problem Set 6", "due": mk(12 * day)},
+            {"course": "CPSC 349",  "title": "Web Project Final", "due": mk(14 * day)},
+            {"course": "ENGL 102",  "title": "Peer Review", "due": mk(15 * day)},
         ],
     }
 
@@ -546,7 +553,7 @@ def canvas():
                         "url": a.get("html_url"),
                     })
         items.sort(key=lambda x: x["due"])
-        data = {"linked": True, "items": items[:8]}
+        data = {"linked": True, "items": items[:20]}
         _canvas_cache.update(t=now, data=data)
         return data
     except Exception:

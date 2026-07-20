@@ -283,6 +283,34 @@ html, body {
   100% { opacity: 0; transform: translate(-50%, -34px) scale(1.1); }
 }
 
+/* ---- assignments screen (full list) ---- */
+.assign-screen {
+  width: 1024px; height: 600px; padding: 20px 24px;
+  display: flex; flex-direction: column; gap: 14px;
+}
+.assign-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+}
+.assign-title { font-size: 20px; font-weight: 800; color: var(--ink); }
+.assign-sub { font-size: 11px; color: var(--muted); font-weight: 700; }
+.assign-card {
+  flex: 1; min-height: 0; display: flex; flex-direction: column;
+}
+.ax-list {
+  flex: 1; min-height: 0; overflow: hidden;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 0 28px;
+  align-content: start;
+}
+.ax-list .cv-item { padding: 9px 0; }
+.ax-list .cv-title { font-size: 13px; }
+.ax-list .cv-course { font-size: 11px; }
+.ax-list .cv-due { font-size: 12px; }
+.ax-list .cv-empty { grid-column: 1 / -1; }
+.ax-more {
+  margin-top: 8px; font-size: 10px; color: var(--muted);
+  font-weight: 700; text-align: center;
+}
+
 /* ---- cats screen (ambient) ---- */
 .cats-room {
   position: fixed; inset: 0;
