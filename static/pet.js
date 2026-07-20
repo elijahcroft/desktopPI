@@ -146,7 +146,10 @@
         } else {
           x += (dx / dist) * speed * dt;
           y += (dy / dist) * speed * dt;
-          const fpsW = excited ? 14 : zoom ? 16 : 9;
+          // Tie leg-cycle rate to actual speed (~5px of travel per animation
+          // frame) so faster gaits (zoomies, excited chase) don't outrun the
+          // walk cycle and look like sliding/moonwalking.
+          const fpsW = speed / 5;
           if (Math.abs(dx) > Math.abs(dy)) setClip(dx < 0 ? "walk_left" : "walk_right", fpsW);
           else                              setClip(dy < 0 ? "walk_up" : "walk_down", fpsW);
         }
