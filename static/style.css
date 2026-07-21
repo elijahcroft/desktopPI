@@ -143,7 +143,9 @@ html, body {
   transform: translateX(-50%);
   width: 4px; height: 4px; border-radius: 50%; background: var(--orange);
 }
-.wk.has-ev .dn.today::after { background: #fff; }
+/* the dot sits below the pill on the card, not on the orange today-fill,
+   so it must contrast with the card -- keep it orange for today too */
+.wk.has-ev .dn.today::after { background: var(--orange-d); }
 
 /* ---- weather ---- */
 #weather-card { grid-column: 2; grid-row: 1; }
