@@ -50,7 +50,7 @@ html, body {
 }
 .side-title {
   margin: 0 6px 9px; color: var(--head);
-  font-size: 11px; font-weight: 800; letter-spacing: .3px;
+  font-size: 13px; font-weight: 800; letter-spacing: .3px;
 }
 #history-list {
   min-height: 0; display: flex; flex-direction: column; gap: 8px;
@@ -72,23 +72,23 @@ html, body {
 .hist-item.control .hist-dot { background: var(--blue); }
 .hist-copy { min-width: 0; }
 .hist-copy b {
-  display: block; color: var(--ink); font-size: 11px; font-weight: 800;
+  display: block; color: var(--ink); font-size: 13px; font-weight: 800;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .hist-copy span {
-  display: block; color: var(--muted); font-size: 10px; font-weight: 600;
+  display: block; color: var(--muted); font-size: 12px; font-weight: 600;
   line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .hist-item time {
-  grid-column: 2; color: var(--muted); font-size: 9px; font-weight: 700;
+  grid-column: 2; color: var(--muted); font-size: 11px; font-weight: 700;
 }
 .hist-empty {
-  margin: 8px 6px; color: var(--muted); font-size: 11px; font-weight: 600;
+  margin: 8px 6px; color: var(--muted); font-size: 13px; font-weight: 600;
   line-height: 1.4;
 }
 .side-foot {
   margin-top: auto; display: flex; flex-direction: column; gap: 4px;
-  font-size: 11px; color: var(--muted); padding: 0 8px 4px;
+  font-size: 13px; color: var(--muted); padding: 0 8px 4px;
 }
 .online { display: flex; align-items: center; gap: 6px; }
 .online i {
@@ -171,11 +171,11 @@ html, body {
   grid-column: 3; grid-row: 1;
   display: flex; flex-direction: column; overflow: hidden;
 }
-#net-card .pulse { font-size: 12px; }
+#net-card .pulse { font-size: 14px; }
 .net-rates { display: flex; gap: 20px; margin-bottom: 6px; }
 .net-rate { display: flex; flex-direction: column; line-height: 1.15; }
-.net-rate b { font-size: 20px; font-weight: 800; }
-.net-rate span { font-size: 10px; color: var(--muted); font-weight: 600; }
+.net-rate b { font-size: 24px; font-weight: 800; }
+.net-rate span { font-size: 12px; color: var(--muted); font-weight: 600; }
 .net-rate.down b { color: var(--blue); }
 .net-rate.up b { color: var(--green); }
 #net-spark { width: 100%; height: 30px; display: block; }
@@ -190,7 +190,7 @@ html, body {
 }
 .net-sess .sess {
   display: flex; align-items: center; gap: 6px;
-  font-size: 11px; color: var(--ink); font-weight: 700;
+  font-size: 13px; color: var(--ink); font-weight: 700;
 }
 .net-sess .sess i {
   width: 6px; height: 6px; border-radius: 50%;
@@ -201,12 +201,12 @@ html, body {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .net-sess .none {
-  font-size: 11px; color: var(--muted); font-weight: 600;
+  font-size: 13px; color: var(--muted); font-weight: 600;
   margin: auto 0; text-align: center;
 }
 .net-foot {
   margin-top: 8px; display: flex; justify-content: space-between;
-  font-size: 10px; color: var(--muted); font-weight: 600;
+  font-size: 12px; color: var(--muted); font-weight: 600;
 }
 
 /* ---- shared assignment list (used by the standalone Assignments screen) ---- */
@@ -267,10 +267,10 @@ html, body {
 .dot.ok { background: var(--green); box-shadow: 0 0 0 3px rgba(124,174,90,.2); }
 .bot-line {
   display: flex; align-items: center; gap: 8px;
-  font-size: 13px; padding: 9px 0; border-bottom: 1px solid var(--line);
+  font-size: 15px; padding: 9px 0; border-bottom: 1px solid var(--line);
 }
 .bot-line:last-child { border-bottom: 0; }
-.bot-line .ic { width: 16px; color: var(--muted); font-size: 11px; }
+.bot-line .ic { width: 18px; color: var(--muted); font-size: 13px; }
 .bot-line span { color: var(--muted); }
 .bot-line b { margin-left: auto; color: var(--ink); font-weight: 700; }
 #bot-mode.alert { color: var(--orange); }
@@ -278,7 +278,7 @@ html, body {
 .bot-beat { padding-top: 10px; }
 .bot-beat .bb-lbl {
   display: block; margin-bottom: 4px;
-  font-size: 9px; font-weight: 700; letter-spacing: 1px;
+  font-size: 11px; font-weight: 700; letter-spacing: 1px;
   text-transform: uppercase; color: var(--muted);
 }
 #bot-ecg { display: block; width: 100%; height: 22px; }
@@ -301,19 +301,19 @@ html, body {
 }
 .dc-plan { display: flex; align-items: baseline; justify-content: space-between; }
 #dc-plan {
-  font-size: 21px; font-weight: 800; color: var(--ink); letter-spacing: -.3px;
+  font-size: 24px; font-weight: 800; color: var(--ink); letter-spacing: -.3px;
 }
-#dc-model { font-size: 12px; color: var(--muted); font-weight: 700; }
+#dc-model { font-size: 14px; color: var(--muted); font-weight: 700; }
 
 .dc-lim-top {
   display: flex; justify-content: space-between; align-items: baseline;
   margin-bottom: 4px;
 }
-.dc-lim-lbl { font-size: 12px; color: var(--muted); font-weight: 700; letter-spacing: .3px; }
-.dc-lim-pct { font-size: 16px; font-weight: 800; color: var(--ink); }
+.dc-lim-lbl { font-size: 14px; color: var(--muted); font-weight: 700; letter-spacing: .3px; }
+.dc-lim-pct { font-size: 19px; font-weight: 800; color: var(--ink); }
 .dc-lim.warn .dc-lim-pct { color: var(--orange); }
 .dc-lim.hot .dc-lim-pct { color: var(--red); }
-.dc-lim-reset { font-size: 11px; color: var(--muted); font-weight: 600; margin-top: 3px; }
+.dc-lim-reset { font-size: 13px; color: var(--muted); font-weight: 600; margin-top: 3px; }
 
 /* minimal pill: flat orange fill, faint dotted texture in the empty part */
 .dc-track {
@@ -332,7 +332,7 @@ html, body {
 
 .dc-meta {
   display: flex; justify-content: space-between; align-items: baseline;
-  font-size: 11px; color: var(--muted); font-weight: 600;
+  font-size: 13px; color: var(--muted); font-weight: 600;
   letter-spacing: .2px;
 }
 #dc-host { color: var(--head); }
