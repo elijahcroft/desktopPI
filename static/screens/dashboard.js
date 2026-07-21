@@ -59,10 +59,19 @@ registerScreen({
           </div>
         </section>
 
-        <!-- canvas assignments (the cat still roams the whole screen) -->
-        <section id="canvas-card" class="card">
-          <h2>assignments <span class="pulse">📚</span></h2>
-          <div id="cv-list"><div class="cv-empty">loading…</div></div>
+        <!-- network + sessions (the cat still roams the whole screen) -->
+        <section id="net-card" class="card">
+          <h2>network <span class="pulse">🖧</span></h2>
+          <div class="net-rates">
+            <span class="net-rate down"><b id="net-down">—</b><span>▼ down</span></span>
+            <span class="net-rate up"><b id="net-up">—</b><span>▲ up</span></span>
+          </div>
+          <svg id="net-spark" viewBox="0 0 100 30" preserveAspectRatio="none">
+            <polyline class="sp-down" points=""></polyline>
+            <polyline class="sp-up" points=""></polyline>
+          </svg>
+          <div id="net-sess" class="net-sess"></div>
+          <div class="net-foot"><span id="net-ip">—</span><span id="net-iface"></span></div>
         </section>
 
         <!-- system stats -->
@@ -147,6 +156,20 @@ const MON  = ["January","February","March","April","May","June","July",
               "August","September","October","November","December"];
 const WD = "SMTWTFS";
 let lastDay = -1;
+let calDays = new Set();   // 'YYYY-MM-DD's with a calendar event (from payload)
+
+function isoDate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}` +
+         `-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+// Light up the week cells that have events. Runs after buildWeek and whenever a
+// fresh payload lands, since either the week or the event set can change first.
+function markWeek() {
+  document.querySelectorAll("#week .wk").forEach((el) => {
+    el.classList.toggle("has-ev", calDays.has(el.dataset.date));
+  });
+}
 
 function buildWeek(d) {
   const start = new Date(d); start.setDate(d.getDate() - d.getDay());
@@ -154,10 +177,11 @@ function buildWeek(d) {
   for (let i = 0; i < 7; i++) {
     const day = new Date(start); day.setDate(start.getDate() + i);
     const today = day.toDateString() === d.toDateString();
-    html += `<div class="wk"><div class="wd">${WD[i]}</div>` +
+    html += `<div class="wk" data-date="${isoDate(day)}"><div class="wd">${WD[i]}</div>` +
             `<div class="dn${today ? " today" : ""}">${day.getDate()}</div></div>`;
   }
   $("week").innerHTML = html;
+  markWeek();
 }
 
 function tickClock() {
@@ -220,43 +244,41 @@ function ago(ts) {
   return Math.floor(s / 3600) + "h ago";
 }
 
-// ---- canvas assignment due labels ----
-const WKD = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
-function dueInfo(iso) {
-  const d = new Date(iso);              // ISO is UTC; renders in local time
-  const now = new Date();
-  const mins = Math.round((d - now) / 60000);
-  const time = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  const midnight = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate());
-  const days = Math.round((midnight(d) - midnight(now)) / 86400000);
-  let label;
-  if (mins < 0)        label = "late";
-  else if (days === 0) label = time;
-  else if (days === 1) label = "tmrw";
-  else if (days < 7)   label = WKD[d.getDay()];
-  else                 label = `${d.getMonth() + 1}/${d.getDate()}`;
-  const cls = mins < 0 ? "overdue" : mins < 2880 ? "soon" : "";
-  return { label, cls };
+// ---- network throughput + sessions ----
+function fmtRate(kbps) {
+  if (kbps == null) return "—";
+  if (kbps >= 1024) return (kbps / 1024).toFixed(1) + " MB/s";
+  if (kbps >= 100)  return Math.round(kbps) + " KB/s";
+  return kbps.toFixed(kbps < 10 ? 1 : 0) + " KB/s";
 }
 
-function renderCanvas(cv) {
-  const box = $("cv-list");
-  if (!cv || !cv.linked) {
-    box.innerHTML = '<div class="cv-empty">link canvas<br>to see assignments</div>';
-    return;
-  }
-  const items = cv.items || [];
-  if (!items.length) {
-    box.innerHTML = '<div class="cv-empty">🎉 all caught up</div>';
-    return;
-  }
-  box.innerHTML = items.slice(0, 6).map((a) => {
-    const { label, cls } = dueInfo(a.due);
-    return `<div class="cv-item ${cls}"><div class="cv-main">` +
-           `<div class="cv-title">${esc(a.title)}</div>` +
-           `<div class="cv-course">${esc(a.course)}</div></div>` +
-           `<div class="cv-due">${label}</div></div>`;
-  }).join("");
+function renderNet(net) {
+  net = net || {};
+  $("net-down").textContent = fmtRate(net.down_kbps);
+  $("net-up").textContent = fmtRate(net.up_kbps);
+
+  // Down and up share one vertical scale so the two lines are comparable.
+  const dn = net.spark_down || [], up = net.spark_up || [];
+  const max = Math.max(1, ...dn, ...up);
+  const pts = (vals) => {
+    if (!vals || vals.length < 2) return "";
+    const n = vals.length;
+    return vals.map((v, i) =>
+      `${((i / (n - 1)) * 100).toFixed(1)},${(30 - (v / max) * 30).toFixed(1)}`
+    ).join(" ");
+  };
+  document.querySelector("#net-spark .sp-down").setAttribute("points", pts(dn));
+  document.querySelector("#net-spark .sp-up").setAttribute("points", pts(up));
+
+  const sess = net.sessions || [];
+  const box = $("net-sess");
+  box.innerHTML = sess.length
+    ? sess.map((s) => `<div class="sess"><i></i><span>${esc(s.user)}</span>` +
+        `<span class="src">${esc(s.from)}</span></div>`).join("")
+    : '<div class="none">no active sessions</div>';
+
+  $("net-ip").textContent = net.ip || "—";
+  $("net-iface").textContent = net.iface || "";
 }
 
 function esc(s) {
@@ -383,5 +405,9 @@ function render(d) {
   if (pet) pet.celebrate(alerting);
 
   renderHistory(a);
-  renderCanvas(d.canvas);
+  renderNet(d.net);
+
+  // week-strip event dots
+  calDays = new Set((d.calendar && d.calendar.days) || []);
+  markWeek();
 }

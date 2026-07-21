@@ -132,10 +132,18 @@ html, body {
 .wk { text-align: center; }
 .wk .wd { font-size: 9px; color: var(--muted); }
 .wk .dn {
+  position: relative;
   font-size: 13px; font-weight: 700; color: var(--head);
   margin-top: 6px; padding: 4px 0; border-radius: 8px;
 }
 .wk .dn.today { background: var(--orange); color: #fff; }
+/* dot under days that have a calendar event */
+.wk.has-ev .dn::after {
+  content: ""; position: absolute; left: 50%; bottom: -5px;
+  transform: translateX(-50%);
+  width: 4px; height: 4px; border-radius: 50%; background: var(--orange);
+}
+.wk.has-ev .dn.today::after { background: #fff; }
 
 /* ---- weather ---- */
 #weather-card { grid-column: 2; grid-row: 1; }
@@ -156,16 +164,50 @@ html, body {
 .wx-bar i { display: block; height: 100%; width: 0%; background: var(--blue); border-radius: 6px; }
 .wx-row b#wx-hum { color: var(--ink); font-weight: 700; min-width: 30px; text-align: right; }
 
-/* ---- canvas assignments (cat still roams over the whole screen) ---- */
-#canvas-card {
+/* ---- network + sessions (cat still roams over the whole screen) ---- */
+#net-card {
   grid-column: 3; grid-row: 1;
   display: flex; flex-direction: column; overflow: hidden;
 }
-#canvas-card .pulse { font-size: 11px; }
-#cv-list {
-  margin-top: 2px; flex: 1; min-height: 0;
-  display: flex; flex-direction: column; gap: 2px; overflow: hidden;
+#net-card .pulse { font-size: 11px; }
+.net-rates { display: flex; gap: 20px; margin-bottom: 6px; }
+.net-rate { display: flex; flex-direction: column; line-height: 1.15; }
+.net-rate b { font-size: 18px; font-weight: 800; }
+.net-rate span { font-size: 9px; color: var(--muted); font-weight: 600; }
+.net-rate.down b { color: var(--blue); }
+.net-rate.up b { color: var(--green); }
+#net-spark { width: 100%; height: 30px; display: block; }
+#net-spark polyline {
+  fill: none; stroke-width: 1.5; vector-effect: non-scaling-stroke;
 }
+#net-spark .sp-down { stroke: var(--blue); }
+#net-spark .sp-up { stroke: var(--green); }
+.net-sess {
+  margin-top: 8px; flex: 1; min-height: 0;
+  display: flex; flex-direction: column; gap: 4px; overflow: hidden;
+}
+.net-sess .sess {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 10px; color: var(--ink); font-weight: 700;
+}
+.net-sess .sess i {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--green); flex: none;
+}
+.net-sess .sess .src {
+  color: var(--muted); font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.net-sess .none {
+  font-size: 10px; color: var(--muted); font-weight: 600;
+  margin: auto 0; text-align: center;
+}
+.net-foot {
+  margin-top: 8px; display: flex; justify-content: space-between;
+  font-size: 9px; color: var(--muted); font-weight: 600;
+}
+
+/* ---- shared assignment list (used by the standalone Assignments screen) ---- */
 .cv-item {
   display: grid; grid-template-columns: 1fr auto; align-items: baseline;
   gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line);

@@ -97,7 +97,7 @@
 
   function handleAlert(d) {
     const a = d.alerts || {};
-    const alerting = (d.bot && d.bot.claimable > 0) || !!a.test;
+    const alerting = (d.bot && d.bot.claimable > 0) || !!a.test || !!a.ssh;
     document.body.classList.toggle("alert", alerting && a.flash !== false);
     if (alerting && !wasAlerting && !a.muted) beep();
     wasAlerting = alerting;

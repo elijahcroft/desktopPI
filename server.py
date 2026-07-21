@@ -16,9 +16,11 @@ import re
 import socket
 import subprocess
 import sys
+import threading
 import time
 import urllib.parse
 import urllib.request
+from datetime import date, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 # ---------------------------------------------------------------------------
@@ -56,6 +58,13 @@ _latlon = None  # resolved once
 
 CANVAS_TTL = 900  # seconds -- Canvas is many requests; poll it rarely
 _canvas_cache = {"t": 0, "data": None}
+
+# Calendar: a private .ics feed URL (Apple/Google/Outlook all export one under
+#   calendar settings > "public/secret address in iCal format"). Read-only, no
+#   key -> just paste the URL into CALENDAR_ICS_URL in .env. webcal:// is fine.
+CALENDAR_ICS_URL = os.environ.get("CALENDAR_ICS_URL", "")
+CALENDAR_TTL = 900  # seconds
+_calendar_cache = {"t": 0, "data": None}
 
 BOT_TTL = 3  # seconds -- see bot_status()
 _bot_cache = {"t": 0, "data": None}
@@ -385,6 +394,7 @@ def alerts_payload():
         "muted": bool(_control["muted"]),
         "flash": bool(_control["flash"]),
         "test": time.time() < float(_control.get("test_until", 0)),
+        "ssh": time.time() < _ssh_alert_until,
     }
 
 
@@ -417,7 +427,9 @@ def state_payload():
         "system": system_stats(),
         "weather": weather(),
         "bot": bot_status(),
+        "net": net_payload(),
         "canvas": canvas(),
+        "calendar": calendar(),
         "claude": claude_usage(),
         "alerts": alerts_payload(),
         "screen": _control["screen"],
@@ -509,6 +521,164 @@ def _bot_status_uncached():
 
 
 # ---------------------------------------------------------------------------
+# Network throughput + login sessions
+# ---------------------------------------------------------------------------
+# Sampled by a background thread (net_sampler) every second so the kiosk's 5s
+# poll still gets a smooth sparkline, and a fresh SSH login flashes the kiosk
+# within ~1s. Sessions combine `who` (utmp -- catches tailscale-ssh and any
+# pty login) with `ss` on local :22 (plain sshd), so either transport shows up.
+NET_HISTORY_MAX = 60          # ~1 min of 1s samples
+_net_lock = threading.Lock()
+_net = {
+    "iface": None, "ip": None,
+    "down_kbps": 0.0, "up_kbps": 0.0,
+    "spark_down": [], "spark_up": [],
+    "sessions": [],
+}
+_net_prev = None              # (iface, ts, rx_bytes, tx_bytes)
+_ssh_seen = None              # session keys seen last sample; None until primed
+_ssh_alert_until = 0.0        # flash/chime window after a new login
+
+
+def _default_iface():
+    try:
+        with open("/proc/net/route") as f:
+            next(f)
+            for line in f:
+                p = line.split()
+                if len(p) > 3 and p[1] == "00000000" and int(p[3], 16) & 2:
+                    return p[0]   # destination 0.0.0.0 with RTF_GATEWAY set
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+def _iface_bytes(iface):
+    try:
+        with open("/proc/net/dev") as f:
+            for line in f:
+                name, sep, rest = line.partition(":")
+                if sep and name.strip() == iface:
+                    c = rest.split()
+                    return int(c[0]), int(c[8])   # rx_bytes, tx_bytes
+    except (OSError, ValueError, IndexError):
+        pass
+    return None
+
+
+def _primary_ip():
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))   # no packet sent; just picks the local addr
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except OSError:
+        return None
+
+
+def login_sessions():
+    sessions, seen = [], set()
+    try:
+        who = subprocess.run(["who"], capture_output=True, text=True,
+                             timeout=4).stdout
+        for line in who.splitlines():
+            parts = line.split()
+            if len(parts) < 2 or not parts[1].startswith("pts"):
+                continue          # pts = a terminal/remote session, not the console
+            m = re.search(r"\(([^)]+)\)", line)
+            key = f"who:{parts[0]}@{parts[1]}"
+            if key in seen:
+                continue
+            seen.add(key)
+            sessions.append({"user": parts[0],
+                             "from": m.group(1) if m else "local", "key": key})
+    except (OSError, subprocess.SubprocessError):
+        pass
+    try:
+        ss = subprocess.run(["ss", "-tnH"], capture_output=True, text=True,
+                            timeout=4).stdout
+        for line in ss.splitlines():
+            c = line.split()
+            if len(c) < 5:
+                continue
+            local, peer = c[3], c[4]
+            if local.rsplit(":", 1)[-1] != "22":
+                continue          # incoming ssh: our side of the socket is :22
+            ip = peer.rsplit(":", 1)[0].strip("[]")
+            key = f"ss:{ip}"
+            if key in seen:
+                continue
+            seen.add(key)
+            sessions.append({"user": "ssh", "from": ip, "key": key})
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return sessions
+
+
+def _sample_net():
+    """One tick: refresh throughput + sessions, alert on any new login."""
+    global _net_prev, _ssh_seen, _ssh_alert_until
+    now = time.time()
+
+    if DEMO:
+        iface, ip = "wlan0", "192.168.1.42"
+        down = 120.0 + (int(now * 90) % 500)
+        up = 20.0 + (int(now * 50) % 120)
+        sessions = [{"user": "ej", "from": "100.83.57.122", "key": "who:ej@pts/0"}]
+    else:
+        iface, ip = _default_iface(), _primary_ip()
+        down = up = 0.0
+        b = _iface_bytes(iface) if iface else None
+        if b and _net_prev and _net_prev[0] == iface:
+            dt = now - _net_prev[1]
+            if dt > 0:
+                down = max(0.0, (b[0] - _net_prev[2]) / dt / 1024.0)
+                up = max(0.0, (b[1] - _net_prev[3]) / dt / 1024.0)
+        _net_prev = (iface, now, b[0], b[1]) if b else None
+        sessions = login_sessions()
+
+    keys = {s["key"] for s in sessions}
+    if _ssh_seen is None:
+        _ssh_seen = keys          # first sample: adopt existing logins silently
+    else:
+        for s in sessions:
+            if s["key"] not in _ssh_seen:
+                add_alert_event("ok", "SSH login", f'{s["user"]} from {s["from"]}')
+                _ssh_alert_until = now + 10
+        _ssh_seen = keys
+
+    with _net_lock:
+        _net.update(iface=iface, ip=ip,
+                    down_kbps=round(down, 1), up_kbps=round(up, 1))
+        _net["spark_down"].append(round(down, 1))
+        _net["spark_up"].append(round(up, 1))
+        del _net["spark_down"][:-NET_HISTORY_MAX]
+        del _net["spark_up"][:-NET_HISTORY_MAX]
+        _net["sessions"] = [{"user": s["user"], "from": s["from"]} for s in sessions]
+
+
+def net_payload():
+    with _net_lock:
+        return {
+            "iface": _net["iface"], "ip": _net["ip"],
+            "down_kbps": _net["down_kbps"], "up_kbps": _net["up_kbps"],
+            "spark_down": list(_net["spark_down"]),
+            "spark_up": list(_net["spark_up"]),
+            "sessions": list(_net["sessions"]),
+        }
+
+
+def net_sampler():
+    while True:
+        try:
+            _sample_net()
+        except Exception:
+            pass          # a bad sample must never kill the thread
+        time.sleep(1)
+
+
+# ---------------------------------------------------------------------------
 # Canvas assignments (needs a personal access token -- the one keyed feature)
 # ---------------------------------------------------------------------------
 def _canvas_get(path, params=None):
@@ -584,6 +754,128 @@ def canvas():
     except Exception:
         # Keep showing the last good list on a transient/expired-token error.
         return _canvas_cache["data"] or {"linked": True, "items": [], "error": True}
+
+
+# ---------------------------------------------------------------------------
+# Calendar (private .ics feed -> which days in the visible week have an event)
+# ---------------------------------------------------------------------------
+# We only need day-level marks for the week strip, so this is a deliberately
+# small iCal reader, not a full RFC 5545 engine: single events plus simple
+# DAILY/WEEKLY/MONTHLY/YEARLY recurrence, expanded across a ~2-week window.
+_WD = {"MO": 0, "TU": 1, "WE": 2, "TH": 3, "FR": 4, "SA": 5, "SU": 6}
+
+
+def _ical_date(val):
+    """First YYYYMMDD in an iCal date/date-time value -> date, else None."""
+    m = re.match(r"\s*(\d{4})(\d{2})(\d{2})", val)
+    if not m:
+        return None
+    try:
+        return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    except ValueError:
+        return None
+
+
+def _expand(start, rrule, lo, hi):
+    """Occurrence dates in [lo, hi]. No RRULE -> just the start date if in range.
+    Honors FREQ/INTERVAL/UNTIL and WEEKLY BYDAY; COUNT is ignored (a stray dot
+    from a long-ended series is harmless for a week strip)."""
+    if not rrule:
+        return [start] if lo <= start <= hi else []
+    parts = {}
+    for kv in rrule.split(";"):
+        k, _, v = kv.partition("=")
+        parts[k.upper()] = v.upper()
+    freq = parts.get("FREQ", "")
+    interval = int(parts["INTERVAL"]) if parts.get("INTERVAL", "").isdigit() else 1
+    until = _ical_date(parts["UNTIL"]) if "UNTIL" in parts else None
+    end = min(hi, until) if until else hi
+    byday = [_WD[d[-2:]] for d in parts.get("BYDAY", "").split(",") if d[-2:] in _WD]
+
+    out = []
+    d = max(start, lo)
+    for _ in range(400):  # window is ~2 weeks; cap just guards against a bad rule
+        if d > end:
+            break
+        hit = False
+        if freq == "DAILY":
+            hit = (d - start).days % interval == 0
+        elif freq == "WEEKLY":
+            wds = byday or [start.weekday()]
+            hit = ((d - start).days // 7) % interval == 0 and d.weekday() in wds
+        elif freq == "MONTHLY":
+            months = (d.year - start.year) * 12 + d.month - start.month
+            hit = months % interval == 0 and d.day == start.day
+        elif freq == "YEARLY":
+            hit = (d.year - start.year) % interval == 0 and \
+                  (d.month, d.day) == (start.month, start.day)
+        else:
+            return [start] if lo <= start <= hi else []
+        if hit:
+            out.append(d)
+        d += timedelta(days=1)
+    return out
+
+
+def _ev_dates_from_ical(text, lo, hi):
+    """Set of 'YYYY-MM-DD' in [lo, hi] that carry at least one event."""
+    text = re.sub(r"\r?\n[ \t]", "", text)  # unfold continued lines
+    days = set()
+    for block in text.split("BEGIN:VEVENT")[1:]:
+        block = block.split("END:VEVENT")[0]
+        start = rrule = None
+        for line in block.splitlines():
+            key, sep, val = line.partition(":")
+            if not sep:
+                continue
+            name = key.split(";")[0].upper()
+            if name == "DTSTART" and start is None:
+                start = _ical_date(val)
+            elif name == "RRULE" and rrule is None:
+                rrule = val.strip()
+        if not start:
+            continue
+        for d in _expand(start, rrule, lo, hi):
+            days.add(d.isoformat())
+    return days
+
+
+def _demo_calendar():
+    today = date.today()
+    return {"linked": True,
+            "days": [(today + timedelta(days=o)).isoformat() for o in (0, 2, 3, 6, 9)]}
+
+
+def calendar():
+    """Days (within ~2 weeks) that have an event, for the week strip. Cached;
+    off unless CALENDAR_ICS_URL is set."""
+    now = time.time()
+    if _calendar_cache["data"] and now - _calendar_cache["t"] < CALENDAR_TTL:
+        return _calendar_cache["data"]
+
+    if DEMO:
+        data = _demo_calendar()
+        _calendar_cache.update(t=now, data=data)
+        return data
+
+    if not CALENDAR_ICS_URL:
+        return {"linked": False, "days": []}
+
+    url = CALENDAR_ICS_URL
+    if url.startswith("webcal://"):
+        url = "https://" + url[len("webcal://"):]
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "pi-dashboard/1.0"})
+        with urllib.request.urlopen(req, timeout=12) as r:
+            text = r.read().decode("utf-8", "ignore")
+        today = date.today()
+        lo, hi = today - timedelta(days=1), today + timedelta(days=14)
+        data = {"linked": True, "days": sorted(_ev_dates_from_ical(text, lo, hi))}
+        _calendar_cache.update(t=now, data=data)
+        return data
+    except Exception:
+        # Keep the last good marks on a transient fetch/parse error.
+        return _calendar_cache["data"] or {"linked": True, "days": [], "error": True}
 
 
 # ---------------------------------------------------------------------------
@@ -877,6 +1169,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     load_state()
+    threading.Thread(target=net_sampler, daemon=True).start()
     srv = ThreadingHTTPServer((BIND, PORT), Handler)
     mode = "DEMO" if DEMO else "live"
     print(f"[dashboard] serving on http://{BIND}:{PORT}  ({mode} mode)")
