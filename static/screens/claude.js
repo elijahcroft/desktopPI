@@ -8,7 +8,7 @@ registerScreen({
 
   html: `<div class="claude-screen">
            <div class="claude-card">
-             <div class="claude-icon">✳</div>
+             <img class="claude-icon" src="claude.svg" alt="" />
              <div class="claude-title">CLAUDE CODE</div>
              <div class="claude-bar"><i></i></div>
              <div class="claude-pct">--</div>

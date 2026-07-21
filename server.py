@@ -20,7 +20,7 @@ import threading
 import time
 import urllib.parse
 import urllib.request
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 # ---------------------------------------------------------------------------
@@ -75,6 +75,14 @@ CLAUDE_TTL = 5  # seconds
 _claude_cache = {"t": 0, "data": None}
 CLAUDE_PROJECTS = os.path.expanduser("~/.claude/projects")
 CONTEXT_WINDOW = 200000  # Opus/Sonnet auto-compact window
+
+# Live plan usage -- the 5h/weekly limits the CLI's /usage shows. Fetched from
+# the OAuth usage endpoint with the locally logged-in token; refreshed rarely
+# since it's a network call and the numbers move slowly.
+USAGE_TTL = 60  # seconds
+CLAUDE_CREDS = os.path.expanduser("~/.claude/.credentials.json")
+USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
+_usage_cache = {"t": 0, "data": None}
 
 # Sparkline of recent context%. In-memory (a reboot starts fresh); one point
 # every CLAUDE_HISTORY_EVERY seconds keeps the trend readable, not jittery.
@@ -441,13 +449,19 @@ def state_payload():
 def _demo_bot():
     # Occasionally surface a claimable to exercise the alert path.
     claimable = 1 if int(time.time()) % 30 < 6 else 0
+    now = time.time()
+    polls = [
+        {"t": now - (39 - i) * 28, "o": 3, "c": 1 if (i % 11 == 0) else 0}
+        for i in range(40)
+    ]
     status = {
         "running": True,
         "mode": "alert",
         "logged_in": True,
         "opportunities": 3,
         "claimable": claimable,
-        "last_poll": time.time() - 5,
+        "last_poll": now - 5,
+        "polls": polls,
     }
     update_bot_alerts(status)
     return status
@@ -472,7 +486,9 @@ def _bot_status_uncached():
     status = {
         "running": False, "mode": None, "logged_in": False,
         "opportunities": None, "claimable": None, "last_poll": None,
+        "polls": [],
     }
+    polls = []
     try:
         out = subprocess.run(
             ["journalctl", "-t", BOT_IDENTIFIER, "-n", "120", "-o", "json",
@@ -513,6 +529,10 @@ def _bot_status_uncached():
             status["opportunities"] = int(m.group(1))
             status["claimable"] = int(m.group(2))
             status["last_poll"] = ts
+            polls.append({"t": ts, "o": int(m.group(1)), "c": int(m.group(2))})
+
+    # last ~40 polls, oldest -> newest, drives the heartbeat strip on the card
+    status["polls"] = polls[-40:]
 
     if status["last_poll"]:
         status["running"] = (time.time() - status["last_poll"]) < 120
@@ -881,10 +901,9 @@ def calendar():
 # ---------------------------------------------------------------------------
 # Claude Code usage (context-window fill of the most recent local session)
 # ---------------------------------------------------------------------------
-# This is the "context used" number the CLI shows, NOT the /usage plan limit --
-# that 5h/weekly percentage is fetched live and never written to disk, so it
-# can't be read here. Log into Claude on the Pi and use it; this reflects the
-# most recently active session.
+# This is the "context used" number the CLI shows. The /usage plan limits
+# (5h/weekly %, reset times) aren't on disk -- _plan_usage() fetches those live
+# and merges them in. This part reflects the most recently active session.
 def _latest_transcript():
     latest, latest_m = None, 0.0
     try:
@@ -968,6 +987,37 @@ def record_remote_claude(body):
     _remote_claude["ts"] = ts
 
 
+def _plan_usage():
+    """The account's live 5h/weekly limits -- exactly what `/usage` shows --
+    read via the OAuth usage endpoint with the locally logged-in token. Returns
+    {} if the token is missing or the call fails. Cached: it's a network hop."""
+    now = time.time()
+    if _usage_cache["data"] is not None and now - _usage_cache["t"] < USAGE_TTL:
+        return _usage_cache["data"]
+    out = _usage_cache["data"] or {}  # keep last-good on a transient failure
+    try:
+        with open(CLAUDE_CREDS) as f:
+            oauth = json.load(f)["claudeAiOauth"]
+        req = urllib.request.Request(USAGE_URL, headers={
+            "Authorization": "Bearer " + oauth["accessToken"],
+            "anthropic-beta": "oauth-2025-04-20",
+        })
+        with urllib.request.urlopen(req, timeout=8) as r:
+            u = json.load(r)
+        sess, week = u.get("five_hour") or {}, u.get("seven_day") or {}
+        out = {
+            "plan": (oauth.get("subscriptionType") or "").capitalize() or None,
+            "session_pct": sess.get("utilization"),
+            "session_reset": sess.get("resets_at"),
+            "week_pct": week.get("utilization"),
+            "week_reset": week.get("resets_at"),
+        }
+    except Exception:
+        pass
+    _usage_cache.update(t=now, data=out)
+    return out
+
+
 def claude_usage():
     now = time.time()
     if _claude_cache["data"] is not None and now - _claude_cache["t"] < CLAUDE_TTL:
@@ -978,7 +1028,12 @@ def claude_usage():
         _record_history(pct)
         data = {"linked": True, "pct": pct, "tokens": pct * CONTEXT_WINDOW // 100,
                 "active": True, "model": "opus-4-8", "host": LOCAL_HOST,
-                "spark": [p for _, p in _claude_history]}
+                "spark": [p for _, p in _claude_history],
+                "plan": "Pro", "session_pct": 42, "week_pct": 18,
+                "session_reset": (datetime.now().astimezone()
+                                  + timedelta(hours=2, minutes=20)).isoformat(),
+                "week_reset": (datetime.now().astimezone()
+                               + timedelta(days=3, hours=5)).isoformat()}
         _claude_cache.update(t=now, data=data)
         return data
 
@@ -1017,6 +1072,10 @@ def claude_usage():
     if data.get("pct") is not None:
         _record_history(data["pct"])
     data["spark"] = [p for _, p in _claude_history]
+
+    # Live plan limits are account-global, so merge them in regardless of which
+    # session (local/remote/none) supplied the context number above.
+    data.update(_plan_usage())
 
     _claude_cache.update(t=now, data=data)
     return data

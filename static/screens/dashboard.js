@@ -89,22 +89,34 @@ registerScreen({
           <div class="bot-line"><span class="ic">⟨⟩</span><span>mode</span><b id="bot-mode">—</b></div>
           <div class="bot-line"><span class="ic">◎</span><span>opportunities</span><b id="bot-opps">—</b></div>
           <div class="bot-line"><span class="ic">🕒</span><span>last poll</span><b id="bot-poll">—</b></div>
+          <div class="bot-beat">
+            <span class="bb-lbl">heartbeat</span>
+            <svg id="bot-ecg" viewBox="0 0 120 22" preserveAspectRatio="none"></svg>
+          </div>
         </section>
 
-        <!-- claude usage -->
+        <!-- claude usage (live /usage plan limits) -->
         <section id="dash-claude" class="card">
-          <h2>claude <span class="pulse">✳</span></h2>
+          <h2>claude <img class="pulse claude-glyph" src="claude.svg" alt="" /></h2>
           <div class="dc-body">
-            <div class="dc-head">
-              <span id="dc-pct">--</span>
-              <span id="dc-sub">context used</span>
+            <div class="dc-plan"><b id="dc-plan">—</b><span id="dc-model"></span></div>
+
+            <div class="dc-lim" id="dc-session">
+              <div class="dc-lim-top"><span class="dc-lim-lbl">session · 5h</span>
+                <b class="dc-lim-pct">—</b></div>
+              <div class="dc-track"><i></i></div>
+              <div class="dc-lim-reset">resets —</div>
             </div>
-            <div class="dc-track"><i></i></div>
-            <svg id="dc-spark" viewBox="0 0 100 24" preserveAspectRatio="none">
-              <polyline points=""></polyline>
-            </svg>
+
+            <div class="dc-lim" id="dc-week">
+              <div class="dc-lim-top"><span class="dc-lim-lbl">this week</span>
+                <b class="dc-lim-pct">—</b></div>
+              <div class="dc-track"><i></i></div>
+              <div class="dc-lim-reset">resets —</div>
+            </div>
+
             <div class="dc-meta">
-              <span id="dc-tok">—</span>
+              <span id="dc-ctx">ctx —</span>
               <span id="dc-host"></span>
             </div>
           </div>
@@ -252,6 +264,32 @@ function fmtRate(kbps) {
   return kbps.toFixed(kbps < 10 ? 1 : 0) + " KB/s";
 }
 
+// ECG-style heartbeat of the bot's recent polls: a flatline of tiny blips
+// (one per poll) with a tall orange spike wherever a claimable was found.
+function renderBeat(polls) {
+  const svg = $("bot-ecg");
+  if (!svg) return;
+  const W = 120, BASE = 17, LOW = 12, HIGH = 3;
+  if (!polls.length) {
+    svg.innerHTML = `<line x1="0" y1="${BASE}" x2="${W}" y2="${BASE}" class="ecg-flat"/>`;
+    return;
+  }
+  const step = W / polls.length;
+  let pts = [`0,${BASE}`];
+  const spikes = [];
+  polls.forEach((p, i) => {
+    const x = (i + 0.5) * step;
+    const peak = p.c > 0 ? HIGH : LOW;
+    pts.push(`${(x - step * 0.28).toFixed(1)},${BASE}`,
+             `${x.toFixed(1)},${peak}`,
+             `${(x + step * 0.28).toFixed(1)},${BASE}`);
+    if (p.c > 0) spikes.push(`<circle cx="${x.toFixed(1)}" cy="${HIGH}" r="1.8" class="ecg-hit"/>`);
+  });
+  pts.push(`${W},${BASE}`);
+  svg.innerHTML =
+    `<polyline class="ecg-trace" points="${pts.join(" ")}"/>` + spikes.join("");
+}
+
 function renderNet(net) {
   net = net || {};
   $("net-down").textContent = fmtRate(net.down_kbps);
@@ -311,49 +349,55 @@ function fmtTokens(n) {
   return n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1) + "k" : String(n);
 }
 
-function drawSpark(vals) {
-  const poly = document.querySelector("#dc-spark polyline");
-  if (!poly) return;
-  if (!vals || vals.length < 2) { poly.setAttribute("points", ""); return; }
-  const n = vals.length;
-  poly.setAttribute("points", vals.map((v, i) => {
-    const x = (i / (n - 1)) * 100;
-    const y = 24 - (Math.max(0, Math.min(100, v)) / 100) * 24;
-    return x.toFixed(1) + "," + y.toFixed(1);
-  }).join(" "));
+// "resets in 42m" / "resets in 8h 20m" / "resets Sun 11am" from an ISO string.
+function fmtReset(iso) {
+  if (!iso) return "resets —";
+  const t = new Date(iso).getTime();
+  if (isNaN(t)) return "resets —";
+  const s = Math.floor((t - Date.now()) / 1000);
+  if (s <= 0) return "resetting…";
+  if (s < 3600) return "resets in " + Math.ceil(s / 60) + "m";
+  if (s < 86400) {
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+    return "resets in " + h + "h" + (m ? " " + m + "m" : "");
+  }
+  const d = new Date(t);
+  let h = d.getHours(); const ap = h < 12 ? "am" : "pm"; h = h % 12 || 12;
+  const mm = d.getMinutes();
+  return "resets " + DAYS[d.getDay()].slice(0, 3) + " " + h +
+         (mm ? ":" + String(mm).padStart(2, "0") : "") + ap;
+}
+
+// Fill one .dc-lim block (session or week) from a utilization % + reset time.
+function setLimit(id, pct, reset) {
+  const el = $(id);
+  if (!el) return;
+  const has = pct != null;
+  const p = has ? Math.max(0, Math.min(100, pct)) : 0;
+  el.querySelector(".dc-lim-pct").textContent = has ? Math.round(p) + "%" : "—";
+  el.querySelector(".dc-track i").style.width = p + "%";
+  el.querySelector(".dc-lim-reset").textContent = has ? fmtReset(reset) : "resets —";
+  el.classList.toggle("warn", p >= 50 && p < 80);
+  el.classList.toggle("hot", p >= 80);
 }
 
 function renderClaude(c) {
   c = c || {};
-  const card = $("dash-claude");
-  const fill = document.querySelector("#dash-claude .dc-track i");
-  const pctEl = $("dc-pct");
-  const sub = $("dc-sub");
-  if (!card) return;
+  if (!$("dash-claude")) return;
 
-  drawSpark(c.spark);
+  setLimit("dc-session", c.session_pct, c.session_reset);
+  setLimit("dc-week", c.week_pct, c.week_reset);
 
-  // token count · which machine the session is on
+  $("dc-plan").textContent =
+    c.plan ? "Claude " + c.plan : (c.linked === false ? "not logged in" : "Claude");
+  $("dc-model").textContent = c.model || "";
+
+  // context of the most recent local session, kept as a small extra line
   const tok = fmtTokens(c.tokens);
-  $("dc-tok").textContent = tok
-    ? `${tok} · ${c.model || "claude"}`
-    : (c.model || "");
+  $("dc-ctx").textContent = c.pct == null
+    ? "ctx —"
+    : "ctx " + Math.round(c.pct) + "%" + (tok ? " · " + tok : "");
   $("dc-host").textContent = c.host || "";
-
-  if (c.pct == null) {
-    fill.style.width = "0%";
-    card.classList.remove("warn", "hot");
-    pctEl.textContent = c.linked === false ? "—" : "idle";
-    sub.textContent = c.linked === false ? "not logged in" : "no session yet";
-    return;
-  }
-
-  const pct = Math.max(0, Math.min(100, c.pct));
-  fill.style.width = pct + "%";
-  pctEl.textContent = Math.round(pct) + "%";
-  sub.textContent = c.active ? "context used" : "context used · idle";
-  card.classList.toggle("warn", pct >= 60 && pct < 85);
-  card.classList.toggle("hot", pct >= 85);
 }
 
 function render(d) {
@@ -394,6 +438,7 @@ function render(d) {
   $("bot-mode").classList.toggle("alert", b.mode === "alert");
   $("bot-opps").textContent = b.opportunities ?? "—";
   $("bot-poll").textContent = ago(b.last_poll);
+  renderBeat(b.polls || []);
 
   // claude usage (context-used bar of the latest local session)
   renderClaude(d.claude);
